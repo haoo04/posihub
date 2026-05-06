@@ -1,0 +1,77 @@
+# -----------------------------
+# Python bytecode / cache
+# -----------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+
+# -----------------------------
+# Build / packaging artifacts
+# -----------------------------
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# -----------------------------
+# Virtual environments
+# -----------------------------
+.venv/
+venv/
+env/
+ENV/
+
+# -----------------------------
+# Test / lint / type-check caches
+# -----------------------------
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# -----------------------------
+# Local environment files
+# -----------------------------
+.env
+.env.*
+!.env.example
+
+# -----------------------------
+# Local databases / state
+# -----------------------------
+*.db
+*.sqlite
+*.sqlite3
+backend/*.db
+
+# -----------------------------
+# Runtime logs / pid files
+# -----------------------------
+*.log
+*.pid
+
+# -----------------------------
+# Jupyter / notebooks checkpoints
+# -----------------------------
+.ipynb_checkpoints/
+
+# -----------------------------
+# Frontend artifacts (for future frontend/)
+# -----------------------------
+node_modules/
+*.tsbuildinfo
+.pnpm-store/
+.npm/
+.yarn/
+
+# -----------------------------
+# IDE / OS noise
+# -----------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
