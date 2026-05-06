@@ -1,0 +1,26 @@
+# Core web framework
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+
+# Pydantic & settings
+pydantic==2.12.5
+pydantic-settings==2.6.1
+
+# ORM / DB
+sqlmodel==0.0.22
+SQLAlchemy==2.0.36
+
+# Exchanges
+ccxt==4.5.52
+
+# Scheduling
+APScheduler==3.10.4
+
+# Security / encryption for API keys
+cryptography==43.0.3
+
+# Testing & linting
+pytest==8.3.4
+httpx==0.28.1
+ruff==0.8.4
+black==24.10.0
