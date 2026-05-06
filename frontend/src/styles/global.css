@@ -1,0 +1,165 @@
+/* ----------------------------------------------------------------------
+ * posihub - 高级浅色金融风全局样式
+ * ---------------------------------------------------------------------- */
+
+:root {
+  --posi-bg: #f6f7fb;
+  --posi-surface: #ffffff;
+  --posi-surface-muted: #fafbfd;
+  --posi-border: #e6e8ef;
+  --posi-border-strong: #d7dbe4;
+
+  --posi-text: #0f172a;
+  --posi-text-secondary: #475569;
+  --posi-text-muted: #94a3b8;
+
+  --posi-primary: #1e3a8a;
+  --posi-primary-soft: #e8edfb;
+  --posi-accent: #0ea5e9;
+
+  --posi-up: #16a34a;
+  --posi-up-soft: #ecfdf5;
+  --posi-down: #dc2626;
+  --posi-down-soft: #fef2f2;
+
+  --posi-shadow-card:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 4px 16px rgba(15, 23, 42, 0.04);
+  --posi-shadow-overlay:
+    0 6px 32px rgba(15, 23, 42, 0.08);
+
+  --posi-mono:
+    "JetBrains Mono", "SFMono-Regular", "Menlo", "Consolas",
+    "Liberation Mono", monospace;
+  --posi-sans:
+    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--posi-bg);
+  color: var(--posi-text);
+  font-family: var(--posi-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "ss01", "cv05", "tnum";
+}
+
+::selection {
+  background: rgba(30, 58, 138, 0.15);
+}
+
+/* ---- numeric / monetary cells should use tabular figures ---- */
+.posi-mono,
+.posi-numeric {
+  font-family: var(--posi-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+/* color helpers */
+.posi-up { color: var(--posi-up); }
+.posi-down { color: var(--posi-down); }
+.posi-muted { color: var(--posi-text-muted); }
+
+/* ---- AntD overrides for the financial light look ---- */
+.ant-card {
+  border-color: var(--posi-border) !important;
+  box-shadow: var(--posi-shadow-card) !important;
+}
+
+.ant-card-bordered {
+  border-color: var(--posi-border) !important;
+}
+
+.ant-table-thead > tr > th {
+  background: var(--posi-surface-muted) !important;
+  color: var(--posi-text-secondary) !important;
+  font-weight: 600 !important;
+  font-size: 12px !important;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--posi-border) !important;
+}
+
+.ant-table-tbody > tr > td {
+  border-bottom: 1px solid var(--posi-border) !important;
+}
+
+.ant-table-tbody > tr:hover > td {
+  background: var(--posi-surface-muted) !important;
+}
+
+.ant-statistic-title {
+  color: var(--posi-text-muted) !important;
+  font-size: 12px !important;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 500 !important;
+}
+
+.ant-statistic-content {
+  font-family: var(--posi-mono) !important;
+  font-variant-numeric: tabular-nums !important;
+  font-weight: 600 !important;
+  color: var(--posi-text) !important;
+}
+
+.ant-layout {
+  background: transparent !important;
+}
+
+.ant-layout-sider {
+  background: var(--posi-surface) !important;
+  border-right: 1px solid var(--posi-border);
+}
+
+.ant-layout-header {
+  background: var(--posi-surface) !important;
+  border-bottom: 1px solid var(--posi-border);
+  padding: 0 24px !important;
+  height: 56px !important;
+  line-height: 56px !important;
+}
+
+.ant-menu-light.ant-menu-root.ant-menu-inline {
+  border-inline-end: none !important;
+}
+
+.ant-menu-item {
+  border-radius: 6px !important;
+  margin: 2px 8px !important;
+  width: calc(100% - 16px) !important;
+}
+
+/* scrollbars (subtle, financial-app feel) */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.12);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.2);
+}
