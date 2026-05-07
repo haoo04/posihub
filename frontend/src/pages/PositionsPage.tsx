@@ -14,6 +14,7 @@ import { AsyncBoundary } from "@/components/AsyncBoundary";
 import { PnlText } from "@/components/PnlText";
 import { SideTag } from "@/components/SideTag";
 import { useAccounts, usePositions } from "@/api/hooks";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
 import type { PositionMerged, PositionSplit } from "@/api/types";
 import { fmtPrice, fmtQty, fmtRelative } from "@/utils/format";
 
@@ -22,6 +23,7 @@ const { Text } = Typography;
 type View = "split" | "merged";
 
 export function PositionsPage() {
+  const { isMobile } = useBreakpoint();
   const [view, setView] = useState<View>("split");
   const [keyword, setKeyword] = useState("");
   const accounts = useAccounts();
@@ -200,7 +202,7 @@ export function PositionsPage() {
               placeholder="搜索 Symbol / 账户"
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
-              style={{ width: 240 }}
+              style={{ width: isMobile ? "100%" : 240, maxWidth: "100%" }}
             />
             <Button
               icon={<ReloadOutlined />}
@@ -216,6 +218,7 @@ export function PositionsPage() {
       />
 
       <Segmented
+        block={isMobile}
         value={view}
         onChange={(v) => setView(v as View)}
         options={[
@@ -236,6 +239,8 @@ export function PositionsPage() {
             columns={isSplit ? splitColumns : mergedColumns}
             dataSource={data as never}
             pagination={{ pageSize: 20, hideOnSinglePage: true }}
+            size={isMobile ? "small" : "middle"}
+            scroll={isMobile ? { x: isSplit ? 1100 : 960 } : undefined}
           />
         </AsyncBoundary>
       </Card>

@@ -1,7 +1,8 @@
-import { Card, Typography } from "antd";
+import { Card, Grid, Typography } from "antd";
 import type { ReactNode } from "react";
 
 const { Text } = Typography;
+const { useBreakpoint } = Grid;
 
 interface Props {
   label: ReactNode;
@@ -18,9 +19,11 @@ const ACCENT_BAR: Record<NonNullable<Props["accent"]>, string> = {
 };
 
 export function KpiCard({ label, value, hint, accent = "primary" }: Props) {
+  const screens = useBreakpoint();
+  const mdUp = !!screens.md;
   return (
     <Card
-      bodyStyle={{ padding: 20, position: "relative" }}
+      bodyStyle={{ padding: mdUp ? 20 : 16, position: "relative" }}
       style={{ borderRadius: 12, overflow: "hidden" }}
     >
       <div
@@ -50,7 +53,7 @@ export function KpiCard({ label, value, hint, accent = "primary" }: Props) {
           marginTop: 8,
           fontFamily: "var(--posi-mono)",
           fontVariantNumeric: "tabular-nums",
-          fontSize: 26,
+          fontSize: mdUp ? 26 : 22,
           fontWeight: 600,
           letterSpacing: "-0.01em",
           color: "var(--posi-text)",

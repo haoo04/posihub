@@ -33,6 +33,7 @@ import {
   useExchanges,
   useSyncAccount,
 } from "@/api/hooks";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
 import type { Account, AccountCreate, AccountType } from "@/api/types";
 import { fmtRelative } from "@/utils/format";
 
@@ -48,6 +49,7 @@ const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
 ];
 
 export function AccountsPage() {
+  const { isMobile } = useBreakpoint();
   const accounts = useAccounts();
   const exchanges = useExchanges();
   const createAccount = useCreateAccount();
@@ -243,13 +245,22 @@ export function AccountsPage() {
             columns={columns}
             dataSource={accounts.data ?? []}
             pagination={false}
+            size={isMobile ? "small" : "middle"}
+            scroll={isMobile ? { x: 920 } : undefined}
           />
         </AsyncBoundary>
       </Card>
 
       <Drawer
         title="新建账户"
-        width={460}
+        placement={isMobile ? "bottom" : "right"}
+        height={isMobile ? "88%" : undefined}
+        width={isMobile ? "100%" : 460}
+        styles={
+          isMobile
+            ? { wrapper: { maxWidth: "100vw" }, body: { paddingBottom: 24 } }
+            : undefined
+        }
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         destroyOnClose

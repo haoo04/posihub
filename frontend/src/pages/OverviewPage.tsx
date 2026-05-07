@@ -8,6 +8,7 @@ import { AsyncBoundary } from "@/components/AsyncBoundary";
 import { SideTag } from "@/components/SideTag";
 import { ensurePosiTheme, POSI_PALETTE } from "@/theme/echartsTheme";
 import { usePnl, usePositions, useOverview } from "@/api/hooks";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
 import {
   fmtCompact,
   fmtMoney,
@@ -20,9 +21,13 @@ const { Text } = Typography;
 ensurePosiTheme();
 
 export function OverviewPage() {
+  const { isMobile } = useBreakpoint();
   const overview = useOverview();
   const pnl = usePnl("30d");
   const positions = usePositions("merged");
+
+  const chartH = isMobile ? 240 : 320;
+  const pieH = isMobile ? 260 : 320;
 
   const equityOption = useMemo(() => {
     const points = pnl.data?.points ?? [];
@@ -81,11 +86,11 @@ export function OverviewPage() {
             1
           )}%`,
       },
-      legend: { bottom: 0, icon: "circle" },
+      legend: { bottom: isMobile ? 4 : 0, icon: "circle", itemWidth: 8 },
       series: [
         {
           type: "pie",
-          radius: ["55%", "82%"],
+          radius: isMobile ? ["48%", "78%"] : ["55%", "82%"],
           avoidLabelOverlap: true,
           itemStyle: { borderColor: "#fff", borderWidth: 2, borderRadius: 6 },
           label: { show: false },
@@ -94,10 +99,10 @@ export function OverviewPage() {
         },
       ],
     };
-  }, [positions.data]);
+  }, [positions.data, isMobile]);
 
   return (
-    <Space direction="vertical" size={20} style={{ width: "100%" }}>
+    <Space direction="vertical" size={isMobile ? 16 : 20} style={{ width: "100%" }}>
       <PageHeader
         title="总览"
         description={
@@ -120,7 +125,7 @@ export function OverviewPage() {
         }
       />
 
-      <Row gutter={[16, 16]}>
+      <Row gutter={isMobile ? [12, 12] : [16, 16]}>
         <Col xs={24} sm={12} lg={6}>
           <KpiCard
             label="总权益 (USDT)"
@@ -166,7 +171,7 @@ export function OverviewPage() {
         </Col>
       </Row>
 
-      <Row gutter={[16, 16]}>
+      <Row gutter={isMobile ? [12, 12] : [16, 16]}>
         <Col xs={24} lg={16}>
           <Card
             title={
@@ -185,9 +190,11 @@ export function OverviewPage() {
               </Space>
             }
             extra={
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                数据基于每日 23:55 快照
-              </Text>
+              !isMobile ? (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  数据基于每日 23:55 快照
+                </Text>
+              ) : null
             }
             bodyStyle={{ padding: 16 }}
             style={{ borderRadius: 12 }}
@@ -202,7 +209,7 @@ export function OverviewPage() {
                 option={equityOption}
                 theme="posi-light"
                 notMerge
-                style={{ height: 320 }}
+                style={{ height: chartH }}
               />
             </AsyncBoundary>
           </Card>
@@ -223,7 +230,7 @@ export function OverviewPage() {
                 option={allocationOption}
                 theme="posi-light"
                 notMerge
-                style={{ height: 320 }}
+                style={{ height: pieH }}
               />
             </AsyncBoundary>
           </Card>
@@ -240,7 +247,8 @@ export function OverviewPage() {
           error={positions.error}
           empty={!positions.data?.length}
         >
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <div className={isMobile ? "posi-table-wrap" : undefined}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: isMobile ? 520 : undefined }}>
             <thead>
               <tr>
                 {["合约", "方向", "数量", "均价", "标记价", "未实现盈亏"].map(
@@ -295,6 +303,7 @@ export function OverviewPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </AsyncBoundary>
       </Card>
     </Space>

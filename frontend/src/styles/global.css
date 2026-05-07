@@ -163,3 +163,54 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(15, 23, 42, 0.2);
 }
+
+/* ----------------------------------------------------------------------
+ * Mobile / narrow screens
+ * ---------------------------------------------------------------------- */
+
+.posi-content {
+  padding: 24px;
+  max-width: 1440px;
+  width: 100%;
+  margin: 0 auto;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+}
+
+@media (max-width: 767px) {
+  .posi-content {
+    padding: 12px;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .ant-layout-header {
+    padding: 0 12px !important;
+    height: 52px !important;
+    line-height: 52px !important;
+  }
+
+  .ant-card-body {
+    padding: 16px !important;
+  }
+
+  .ant-segmented {
+    width: 100%;
+  }
+
+  /* Horizontal scroll for wide tables (wrapper class used in pages) */
+  .posi-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin: 0 -4px;
+    padding: 0 4px;
+  }
+
+  .posi-table-wrap .ant-table {
+    min-width: 640px;
+  }
+
+  .posi-table-wrap table th,
+  .posi-table-wrap table td {
+    padding: 10px 12px !important;
+    font-size: 12px !important;
+  }
+}

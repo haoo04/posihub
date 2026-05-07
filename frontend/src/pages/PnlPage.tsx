@@ -6,6 +6,7 @@ import { AsyncBoundary } from "@/components/AsyncBoundary";
 import { PnlText } from "@/components/PnlText";
 import { ensurePosiTheme, POSI_PALETTE } from "@/theme/echartsTheme";
 import { usePnl } from "@/api/hooks";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { fmtCompact, fmtMoney } from "@/utils/format";
 
 const { Text } = Typography;
@@ -20,6 +21,7 @@ const RANGES = [
 ];
 
 export function PnlPage() {
+  const { isMobile } = useBreakpoint();
   const [range, setRange] = useState("30d");
   const pnl = usePnl(range);
 
@@ -48,7 +50,13 @@ export function PnlPage() {
     const upnl = points.map((p) => p.total_unrealized_pnl);
 
     return {
-      grid: { left: 16, right: 24, top: 32, bottom: 56, containLabel: true },
+      grid: {
+        left: isMobile ? 8 : 16,
+        right: isMobile ? 8 : 24,
+        top: 32,
+        bottom: isMobile ? 68 : 56,
+        containLabel: true,
+      },
       legend: { top: 0, left: 0 },
       tooltip: {
         trigger: "axis",
@@ -114,11 +122,11 @@ export function PnlPage() {
               p.data >= 0 ? "rgba(22,163,74,0.55)" : "rgba(220,38,38,0.55)",
             borderRadius: [4, 4, 0, 0],
           },
-          barMaxWidth: 16,
+          barMaxWidth: isMobile ? 10 : 16,
         },
       ],
     };
-  }, [points]);
+  }, [points, isMobile]);
 
   return (
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
@@ -128,6 +136,7 @@ export function PnlPage() {
       />
 
       <Segmented
+        block={isMobile}
         value={range}
         onChange={(v) => setRange(String(v))}
         options={RANGES}
@@ -136,8 +145,10 @@ export function PnlPage() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-          gap: 16,
+          gridTemplateColumns: isMobile
+            ? "repeat(2, minmax(0, 1fr))"
+            : "repeat(auto-fit, minmax(200px, 1fr))",
+          gap: isMobile ? 12 : 16,
         }}
       >
         <Card bodyStyle={{ padding: 16 }} style={{ borderRadius: 12 }}>
@@ -203,7 +214,7 @@ export function PnlPage() {
             theme="posi-light"
             option={option}
             notMerge
-            style={{ height: 420 }}
+            style={{ height: isMobile ? 320 : 420 }}
           />
         </AsyncBoundary>
       </Card>
