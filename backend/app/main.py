@@ -14,6 +14,7 @@ from .api import (
     routes_manual,
     routes_overview,
     routes_pnl,
+    routes_position_orders,
     routes_positions,
     routes_snapshots,
     routes_symbols,
@@ -64,6 +65,7 @@ def create_app() -> FastAPI:
     app.include_router(routes_overview.router)
     app.include_router(routes_accounts.router)
     app.include_router(routes_positions.router)
+    app.include_router(routes_position_orders.router)
     app.include_router(routes_pnl.router)
     app.include_router(routes_snapshots.router)
     app.include_router(routes_manual.router)

@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { AsyncBoundary } from "@/components/AsyncBoundary";
 import { PnlText } from "@/components/PnlText";
 import { SideTag } from "@/components/SideTag";
+import { PositionOrdersTable } from "@/components/PositionOrdersTable";
 import { useAccounts, usePositions } from "@/api/hooks";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import type { PositionMerged, PositionSplit } from "@/api/types";
@@ -241,6 +242,16 @@ export function PositionsPage() {
             pagination={{ pageSize: 20, hideOnSinglePage: true }}
             size={isMobile ? "small" : "middle"}
             scroll={isMobile ? { x: isSplit ? 1100 : 960 } : undefined}
+            expandable={
+              isSplit
+                ? {
+                    expandedRowRender: (record: PositionSplit) => (
+                      <PositionOrdersTable positionId={record.id} />
+                    ),
+                    rowExpandable: () => true,
+                  }
+                : undefined
+            }
           />
         </AsyncBoundary>
       </Card>

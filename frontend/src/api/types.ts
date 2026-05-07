@@ -3,6 +3,7 @@
 
 export type DataSource = "api" | "manual" | "simulated";
 export type PositionSide = "long" | "short" | "net";
+export type PositionOrderStatus = "open" | "partial" | "closed";
 export type InstrumentType = "spot" | "perp" | "futures";
 export type AccountType =
   | "spot"
@@ -178,4 +179,43 @@ export interface SymbolMapping {
   contract_size: number;
   is_active: boolean;
   created_at: string;
+}
+
+export interface PositionOrderBase {
+  source: DataSource;
+  source_order_id: string | null;
+  open_qty: number;
+  entry_price: number;
+  leverage: number;
+  mmr: number | null;
+  liquidation_price: number | null;
+}
+
+export interface PositionOrderCreate extends PositionOrderBase {
+  position_id: number;
+}
+
+export interface PositionOrderRead extends PositionOrderBase {
+  id: number;
+  position_id: number;
+  status: PositionOrderStatus;
+  remaining_qty: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PositionOrderWithPnL extends PositionOrderRead {
+  unrealized_pnl: number;
+  unrealized_pnl_pct: number;
+  mark_price: number;
+}
+
+export interface PositionOrderUpdate {
+  open_qty?: number;
+  remaining_qty?: number;
+  entry_price?: number;
+  leverage?: number;
+  mmr?: number | null;
+  liquidation_price?: number | null;
+  status?: PositionOrderStatus;
 }

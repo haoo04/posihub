@@ -17,6 +17,9 @@ import type {
   Overview,
   PnlSeries,
   PositionMerged,
+  PositionOrderCreate,
+  PositionOrderUpdate,
+  PositionOrderWithPnL,
   PositionSnapshot,
   PositionSplit,
   SymbolMapping,
@@ -27,6 +30,8 @@ export const queryKeys = {
   exchanges: ["exchanges"] as const,
   accounts: ["accounts"] as const,
   positions: (view: "split" | "merged") => ["positions", view] as const,
+  positionOrders: (positionId?: number) =>
+    positionId ? ["position-orders", positionId] : ["position-orders"] as const,
   pnl: (range: string, asset: string) => ["pnl", range, asset] as const,
   accountSnapshots: (params: Record<string, unknown> = {}) =>
     ["snapshots", "accounts", params] as const,
@@ -225,5 +230,61 @@ export function useSymbols() {
     queryKey: queryKeys.symbols,
     queryFn: async () =>
       (await http.get<SymbolMapping[]>("/api/v1/symbols")).data,
+  });
+}
+
+export function usePositionOrders(positionId: number) {
+  return useQuery({
+    queryKey: queryKeys.positionOrders(positionId),
+    queryFn: async () =>
+      (
+        await http.get<PositionOrderWithPnL[]>(
+          `/api/v1/position-orders/by-position/${positionId}`
+        )
+      ).data,
+    enabled: !!positionId,
+  });
+}
+
+export function useCreatePositionOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: PositionOrderCreate) =>
+      (await http.post("/api/v1/position-orders", payload)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["position-orders"] });
+      qc.invalidateQueries({ queryKey: ["positions"] });
+    },
+  });
+}
+
+export function useUpdatePositionOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      update,
+    }: {
+      id: number;
+      update: PositionOrderUpdate;
+    }) => (await http.patch(`/api/v1/position-orders/${id}`, update)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["position-orders"] });
+      qc.invalidateQueries({ queryKey: ["positions"] });
+    },
+  });
+}
+
+export function useDeletePositionOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await http.delete(`/api/v1/position-orders/${id}`);
+      return id;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["position-orders"] });
+      qc.invalidateQueries({ queryKey: ["positions"] });
+    },
   });
 }

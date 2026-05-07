@@ -61,6 +61,12 @@ class ManualEntryType(str, Enum):
     SNAPSHOT = "snapshot"
 
 
+class PositionOrderStatus(str, Enum):
+    OPEN = "open"
+    PARTIAL = "partial"
+    CLOSED = "closed"
+
+
 # ---------------------------------------------------------------------------
 # Configuration tables
 # ---------------------------------------------------------------------------
@@ -166,6 +172,39 @@ class PositionCurrent(SQLModel, table=True):
     margin_mode: Optional[str] = Field(default=None, max_length=16)
     updated_at: datetime = Field(default_factory=_utcnow)
     source: DataSource = Field(default=DataSource.API)
+
+
+class PositionOrder(SQLModel, table=True):
+    """Order-level position tracking.
+
+    Each order represents an individual entry into a position,
+    allowing for order-level risk and PnL calculation.
+    """
+    __tablename__ = "position_orders"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    position_id: int = Field(foreign_key="positions_current.id", index=True)
+
+    # Order source tracking
+    source: DataSource = Field(default=DataSource.MANUAL)
+    source_order_id: Optional[str] = Field(default=None, max_length=128)
+
+    # Order status
+    status: PositionOrderStatus = Field(default=PositionOrderStatus.OPEN)
+
+    # Quantity tracking
+    open_qty: float = Field(default=0.0)  # Original opening quantity
+    remaining_qty: float = Field(default=0.0)  # Current remaining quantity
+
+    # Price and risk parameters
+    entry_price: float = Field(default=0.0)
+    leverage: float = Field(default=1.0)
+    mmr: Optional[float] = Field(default=None)  # Maintenance margin rate
+    liquidation_price: Optional[float] = Field(default=None)
+
+    # Timestamps
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
 
 
 # ---------------------------------------------------------------------------
