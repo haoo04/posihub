@@ -40,6 +40,7 @@ export function PositionOrderModal({
         remaining_qty: order.remaining_qty,
         entry_price: order.entry_price,
         leverage: order.leverage,
+        margin: order.margin,
         mmr: order.mmr ? order.mmr * 100 : null,
         liquidation_price: order.liquidation_price,
       });
@@ -62,6 +63,7 @@ export function PositionOrderModal({
           remaining_qty: values.remaining_qty,
           entry_price: values.entry_price,
           leverage: values.leverage,
+          margin: values.margin || null,
           mmr: values.mmr ? values.mmr / 100 : null,
           liquidation_price: values.liquidation_price || null,
         };
@@ -76,6 +78,7 @@ export function PositionOrderModal({
           open_qty: values.open_qty,
           entry_price: values.entry_price,
           leverage: values.leverage,
+          margin: values.margin || null,
           mmr: values.mmr ? values.mmr / 100 : null,
           liquidation_price: values.liquidation_price || null,
         };
@@ -187,6 +190,20 @@ export function PositionOrderModal({
             step={1}
             min={1}
             max={125}
+          />
+        </Form.Item>
+
+        <Form.Item
+          name="margin"
+          label="保证金 (USDT)"
+          tooltip="使用的保证金数量"
+        >
+          <InputNumber
+            style={{ width: "100%" }}
+            placeholder="500.00"
+            step={0.01}
+            precision={8}
+            min={0}
           />
         </Form.Item>
 

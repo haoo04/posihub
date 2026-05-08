@@ -187,6 +187,7 @@ export interface PositionOrderBase {
   open_qty: number;
   entry_price: number;
   leverage: number;
+  margin: number | null;
   mmr: number | null;
   liquidation_price: number | null;
 }
@@ -215,6 +216,7 @@ export interface PositionOrderUpdate {
   remaining_qty?: number;
   entry_price?: number;
   leverage?: number;
+  margin?: number | null;
   mmr?: number | null;
   liquidation_price?: number | null;
   status?: PositionOrderStatus;

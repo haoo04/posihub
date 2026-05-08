@@ -199,6 +199,7 @@ class PositionOrder(SQLModel, table=True):
     # Price and risk parameters
     entry_price: float = Field(default=0.0)
     leverage: float = Field(default=1.0)
+    margin: Optional[float] = Field(default=None)  # Margin amount in quote currency
     mmr: Optional[float] = Field(default=None)  # Maintenance margin rate
     liquidation_price: Optional[float] = Field(default=None)
 

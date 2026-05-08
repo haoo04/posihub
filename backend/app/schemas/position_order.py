@@ -15,6 +15,7 @@ class PositionOrderBase(APIModel):
     open_qty: float
     entry_price: float
     leverage: float = 1.0
+    margin: Optional[float] = None
     mmr: Optional[float] = None
     liquidation_price: Optional[float] = None
 
@@ -28,6 +29,7 @@ class PositionOrderUpdate(APIModel):
     remaining_qty: Optional[float] = None
     entry_price: Optional[float] = None
     leverage: Optional[float] = None
+    margin: Optional[float] = None
     mmr: Optional[float] = None
     liquidation_price: Optional[float] = None
     status: Optional[PositionOrderStatus] = None

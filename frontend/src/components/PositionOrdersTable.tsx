@@ -143,6 +143,17 @@ export function PositionOrdersTable({ positionId }: PositionOrdersTableProps) {
       render: (v: number) => <span className="posi-numeric">{v}x</span>,
     },
     {
+      title: "保证金",
+      dataIndex: "margin",
+      align: "right" as const,
+      width: 120,
+      render: (v: number | null) => (
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {v !== null ? fmtPrice(v) : "—"}
+        </Text>
+      ),
+    },
+    {
       title: "MMR",
       dataIndex: "mmr",
       align: "right" as const,
@@ -240,7 +251,7 @@ export function PositionOrdersTable({ positionId }: PositionOrdersTableProps) {
         loading={isLoading}
         pagination={false}
         size="small"
-        scroll={{ x: 1400 }}
+        scroll={{ x: 1520 }}
         locale={{ emptyText: "暂无订单数据" }}
       />
 
