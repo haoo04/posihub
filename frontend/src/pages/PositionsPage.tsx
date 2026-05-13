@@ -2,7 +2,10 @@ import { useMemo, useState } from "react";
 import {
   Button,
   Card,
+  Collapse,
   Input,
+  Row,
+  Col,
   Segmented,
   Space,
   Table,
@@ -190,6 +193,183 @@ export function PositionsPage() {
   const loading = isSplit ? split.isLoading : merged.isLoading;
   const err = isSplit ? split.error : merged.error;
 
+  // Mobile card view for split positions
+  const renderSplitCard = (position: PositionSplit) => (
+    <Card
+      key={position.id}
+      size="small"
+      style={{ marginBottom: 12 }}
+      bodyStyle={{ padding: 12 }}
+    >
+      <Space direction="vertical" size={8} style={{ width: "100%" }}>
+        <Row justify="space-between" align="middle">
+          <Col>
+            <Text strong style={{ fontSize: 16 }}>
+              {position.canonical_symbol}
+            </Text>
+          </Col>
+          <Col>
+            <SideTag side={position.side} />
+          </Col>
+        </Row>
+
+        <Row gutter={[8, 8]}>
+          <Col span={12}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              账户
+            </Text>
+            <div>
+              <Text>{accountMap.get(position.account_id) ?? `#${position.account_id}`}</Text>
+            </div>
+          </Col>
+          <Col span={12}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              数量
+            </Text>
+            <div>
+              <span className="posi-numeric">{fmtQty(position.qty)}</span>
+            </div>
+          </Col>
+          <Col span={12}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              开仓均价
+            </Text>
+            <div>
+              <span className="posi-numeric">{fmtPrice(position.entry_price)}</span>
+            </div>
+          </Col>
+          <Col span={12}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              标记价
+            </Text>
+            <div>
+              <span className="posi-numeric">{fmtPrice(position.mark_price)}</span>
+            </div>
+          </Col>
+          <Col span={12}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              未实现盈亏
+            </Text>
+            <div>
+              <PnlText value={position.unrealized_pnl} />
+            </div>
+          </Col>
+          <Col span={12}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              杠杆 / 保证金
+            </Text>
+            <div>
+              <span className="posi-numeric">{position.leverage}x</span>
+              {position.margin_mode && (
+                <Text type="secondary" style={{ fontSize: 12, marginLeft: 4 }}>
+                  / {position.margin_mode}
+                </Text>
+              )}
+            </div>
+          </Col>
+          <Col span={24}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              更新: {fmtRelative(position.updated_at)}
+            </Text>
+          </Col>
+        </Row>
+
+        <Collapse
+          ghost
+          size="small"
+          items={[
+            {
+              key: "orders",
+              label: "订单详情",
+              children: <PositionOrdersTable positionId={position.id} />,
+            },
+          ]}
+        />
+      </Space>
+    </Card>
+  );
+
+  // Mobile card view for merged positions
+  const renderMergedCard = (position: PositionMerged) => (
+    <Card
+      key={position.canonical_symbol}
+      size="small"
+      style={{ marginBottom: 12 }}
+      bodyStyle={{ padding: 12 }}
+    >
+      <Space direction="vertical" size={8} style={{ width: "100%" }}>
+        <Row justify="space-between" align="middle">
+          <Col>
+            <Text strong style={{ fontSize: 16 }}>
+              {position.canonical_symbol}
+            </Text>
+          </Col>
+          <Col>
+            <SideTag side={position.side} />
+          </Col>
+        </Row>
+
+        <Row gutter={[8, 8]}>
+          <Col span={12}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              净持仓
+            </Text>
+            <div>
+              <span className="posi-numeric">{fmtQty(position.qty)}</span>
+            </div>
+          </Col>
+          <Col span={12}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              加权均价
+            </Text>
+            <div>
+              <span className="posi-numeric">{fmtPrice(position.avg_entry_price)}</span>
+            </div>
+          </Col>
+          <Col span={12}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              标记价
+            </Text>
+            <div>
+              <span className="posi-numeric">{fmtPrice(position.mark_price)}</span>
+            </div>
+          </Col>
+          <Col span={12}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              名义敞口
+            </Text>
+            <div>
+              <span className="posi-numeric">{fmtPrice(Math.abs(position.notional))}</span>
+            </div>
+          </Col>
+          <Col span={12}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              未实现盈亏
+            </Text>
+            <div>
+              <PnlText value={position.unrealized_pnl} />
+            </div>
+          </Col>
+          <Col span={12}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              账户分布
+            </Text>
+            <div>
+              <Text style={{ fontSize: 12 }}>
+                {position.accounts.length} 账户
+              </Text>
+            </div>
+          </Col>
+          <Col span={24}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {position.accounts.map((i) => accountMap.get(i) ?? `#${i}`).join(", ")}
+            </Text>
+          </Col>
+        </Row>
+      </Space>
+    </Card>
+  );
+
   return (
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
       <PageHeader
@@ -228,33 +408,47 @@ export function PositionsPage() {
         ]}
       />
 
-      <Card bodyStyle={{ padding: 0 }} style={{ borderRadius: 12 }}>
+      {isMobile ? (
         <AsyncBoundary
           loading={loading}
           error={err}
           empty={!data.length}
           emptyText="暂无持仓"
         >
-          <Table
-            rowKey={isSplit ? "id" : "canonical_symbol"}
-            columns={isSplit ? splitColumns : mergedColumns}
-            dataSource={data as never}
-            pagination={{ pageSize: 20, hideOnSinglePage: true }}
-            size={isMobile ? "small" : "middle"}
-            scroll={isMobile ? { x: isSplit ? 1100 : 960 } : undefined}
-            expandable={
-              isSplit
-                ? {
-                    expandedRowRender: (record: PositionSplit) => (
-                      <PositionOrdersTable positionId={record.id} />
-                    ),
-                    rowExpandable: () => true,
-                  }
-                : undefined
-            }
-          />
+          <div>
+            {isSplit
+              ? (data as PositionSplit[]).map(renderSplitCard)
+              : (data as PositionMerged[]).map(renderMergedCard)}
+          </div>
         </AsyncBoundary>
-      </Card>
+      ) : (
+        <Card bodyStyle={{ padding: 0 }} style={{ borderRadius: 12 }}>
+          <AsyncBoundary
+            loading={loading}
+            error={err}
+            empty={!data.length}
+            emptyText="暂无持仓"
+          >
+            <Table
+              rowKey={isSplit ? "id" : "canonical_symbol"}
+              columns={isSplit ? splitColumns : mergedColumns}
+              dataSource={data as never}
+              pagination={{ pageSize: 20, hideOnSinglePage: true }}
+              size="middle"
+              expandable={
+                isSplit
+                  ? {
+                      expandedRowRender: (record: PositionSplit) => (
+                        <PositionOrdersTable positionId={record.id} />
+                      ),
+                      rowExpandable: () => true,
+                    }
+                  : undefined
+              }
+            />
+          </AsyncBoundary>
+        </Card>
+      )}
     </Space>
   );
 }
