@@ -16,6 +16,7 @@ import {
   EditOutlined,
   ExclamationCircleOutlined,
   PlusOutlined,
+  ScissorOutlined,
 } from "@ant-design/icons";
 import { PnlText } from "./PnlText";
 import { useDeletePositionOrder, usePositionOrders } from "@/api/hooks";
@@ -23,6 +24,7 @@ import type { PositionOrderWithPnL } from "@/api/types";
 import { fmtPrice, fmtQty, fmtRelative } from "@/utils/format";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { PositionOrderModal } from "./PositionOrderModal";
+import { PositionCloseFifoModal } from "./PositionCloseFifoModal";
 
 const { Text } = Typography;
 const { confirm } = Modal;
@@ -64,6 +66,10 @@ export function PositionOrdersTable({ positionId }: PositionOrdersTableProps) {
     null
   );
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isCloseModalOpen, setIsCloseModalOpen] = useState(false);
+
+  const defaultClosePrice = orders?.[0]?.mark_price;
+  const hasOpenQty = (orders ?? []).some((o) => o.remaining_qty > 0);
 
   const handleDelete = (orderId: number) => {
     confirm({
@@ -404,14 +410,24 @@ export function PositionOrdersTable({ positionId }: PositionOrdersTableProps) {
         }}
       >
         <Text strong>订单明细</Text>
-        <Button
-          type="primary"
-          size="small"
-          icon={<PlusOutlined />}
-          onClick={() => setIsCreateModalOpen(true)}
-        >
-          添加订单
-        </Button>
+        <Space size="small" wrap>
+          <Button
+            size="small"
+            icon={<ScissorOutlined />}
+            onClick={() => setIsCloseModalOpen(true)}
+            disabled={!hasOpenQty}
+          >
+            FIFO 平仓
+          </Button>
+          <Button
+            type="primary"
+            size="small"
+            icon={<PlusOutlined />}
+            onClick={() => setIsCreateModalOpen(true)}
+          >
+            添加订单
+          </Button>
+        </Space>
       </div>
 
       {isMobile ? (
@@ -450,6 +466,14 @@ export function PositionOrdersTable({ positionId }: PositionOrdersTableProps) {
         order={editingOrder || undefined}
         onCancel={() => setEditingOrder(null)}
         onSuccess={() => setEditingOrder(null)}
+      />
+
+      <PositionCloseFifoModal
+        open={isCloseModalOpen}
+        positionId={positionId}
+        defaultClosePrice={defaultClosePrice}
+        onCancel={() => setIsCloseModalOpen(false)}
+        onSuccess={() => setIsCloseModalOpen(false)}
       />
     </div>
   );

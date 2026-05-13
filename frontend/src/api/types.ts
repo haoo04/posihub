@@ -221,3 +221,39 @@ export interface PositionOrderUpdate {
   liquidation_price?: number | null;
   status?: PositionOrderStatus;
 }
+
+export interface PositionCloseRequest {
+  close_qty: number;
+  close_price: number;
+  source?: DataSource;
+  source_order_id?: string | null;
+}
+
+export interface PositionOrderMatchRead {
+  id: number;
+  open_order_id: number;
+  close_order_id: number;
+  matched_qty: number;
+  open_price: number;
+  close_price: number;
+  realized_pnl: number;
+  matched_at: string;
+}
+
+export interface PositionCloseExecutionRead {
+  id: number;
+  position_id: number;
+  close_qty: number;
+  close_price: number;
+  source: DataSource;
+  source_order_id: string | null;
+  realized_pnl: number;
+  created_at: string;
+}
+
+export interface FifoCloseResponse {
+  execution: PositionCloseExecutionRead;
+  matches: PositionOrderMatchRead[];
+  affected_orders: PositionOrderRead[];
+  realized_pnl: number;
+}

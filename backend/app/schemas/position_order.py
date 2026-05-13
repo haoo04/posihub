@@ -49,3 +49,43 @@ class PositionOrderWithPnL(PositionOrderRead):
     unrealized_pnl: float
     unrealized_pnl_pct: float
     mark_price: float
+
+
+class PositionCloseRequest(APIModel):
+    """User-initiated FIFO close action against a position."""
+
+    close_qty: float
+    close_price: float
+    source: DataSource = DataSource.MANUAL
+    source_order_id: Optional[str] = None
+
+
+class PositionOrderMatchRead(APIModel):
+    id: int
+    open_order_id: int
+    close_order_id: int
+    matched_qty: float
+    open_price: float
+    close_price: float
+    realized_pnl: float
+    matched_at: datetime
+
+
+class PositionCloseExecutionRead(APIModel):
+    id: int
+    position_id: int
+    close_qty: float
+    close_price: float
+    source: DataSource
+    source_order_id: Optional[str] = None
+    realized_pnl: float
+    created_at: datetime
+
+
+class FifoCloseResponse(APIModel):
+    """Result of a FIFO close action."""
+
+    execution: PositionCloseExecutionRead
+    matches: list[PositionOrderMatchRead]
+    affected_orders: list[PositionOrderRead]
+    realized_pnl: float
