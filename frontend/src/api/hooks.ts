@@ -12,11 +12,18 @@ import type {
   AccountSnapshot,
   AccountSyncStatus,
   Exchange,
+  FifoCloseResponse,
   ManualSnapshotCreate,
   ManualSnapshotResult,
   Overview,
   PnlSeries,
+  PositionCloseExecutionRead,
+  PositionCloseRequest,
   PositionMerged,
+  PositionOrderCreate,
+  PositionOrderMatchRead,
+  PositionOrderUpdate,
+  PositionOrderWithPnL,
   PositionSnapshot,
   PositionSplit,
   SymbolMapping,
@@ -27,6 +34,12 @@ export const queryKeys = {
   exchanges: ["exchanges"] as const,
   accounts: ["accounts"] as const,
   positions: (view: "split" | "merged") => ["positions", view] as const,
+  positionOrders: (positionId?: number) =>
+    positionId ? ["position-orders", positionId] : ["position-orders"] as const,
+  positionMatches: (positionId: number) =>
+    ["position-matches", positionId] as const,
+  positionCloseExecutions: (positionId: number) =>
+    ["position-close-executions", positionId] as const,
   pnl: (range: string, asset: string) => ["pnl", range, asset] as const,
   accountSnapshots: (params: Record<string, unknown> = {}) =>
     ["snapshots", "accounts", params] as const,
@@ -225,5 +238,120 @@ export function useSymbols() {
     queryKey: queryKeys.symbols,
     queryFn: async () =>
       (await http.get<SymbolMapping[]>("/api/v1/symbols")).data,
+  });
+}
+
+export function usePositionOrders(positionId: number) {
+  return useQuery({
+    queryKey: queryKeys.positionOrders(positionId),
+    queryFn: async () =>
+      (
+        await http.get<PositionOrderWithPnL[]>(
+          `/api/v1/position-orders/by-position/${positionId}`
+        )
+      ).data,
+    enabled: !!positionId,
+  });
+}
+
+export function useCreatePositionOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: PositionOrderCreate) =>
+      (await http.post("/api/v1/position-orders", payload)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["position-orders"] });
+      qc.invalidateQueries({ queryKey: ["positions"] });
+    },
+  });
+}
+
+export function useUpdatePositionOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      update,
+    }: {
+      id: number;
+      update: PositionOrderUpdate;
+    }) => (await http.patch(`/api/v1/position-orders/${id}`, update)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["position-orders"] });
+      qc.invalidateQueries({ queryKey: ["positions"] });
+    },
+  });
+}
+
+export function useDeletePositionOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await http.delete(`/api/v1/position-orders/${id}`);
+      return id;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["position-orders"] });
+      qc.invalidateQueries({ queryKey: ["positions"] });
+    },
+  });
+}
+
+export function useFifoClosePosition() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      positionId,
+      payload,
+    }: {
+      positionId: number;
+      payload: PositionCloseRequest;
+    }) =>
+      (
+        await http.post<FifoCloseResponse>(
+          `/api/v1/positions/${positionId}/close-fifo`,
+          payload
+        )
+      ).data,
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ["position-orders"] });
+      qc.invalidateQueries({ queryKey: ["positions"] });
+      qc.invalidateQueries({
+        queryKey: queryKeys.positionMatches(variables.positionId),
+      });
+      qc.invalidateQueries({
+        queryKey: queryKeys.positionCloseExecutions(variables.positionId),
+      });
+      qc.invalidateQueries({ queryKey: queryKeys.overview });
+    },
+  });
+}
+
+export function usePositionMatches(positionId: number, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.positionMatches(positionId),
+    queryFn: async () =>
+      (
+        await http.get<PositionOrderMatchRead[]>(
+          `/api/v1/positions/${positionId}/matches`
+        )
+      ).data,
+    enabled: !!positionId && enabled,
+  });
+}
+
+export function usePositionCloseExecutions(
+  positionId: number,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: queryKeys.positionCloseExecutions(positionId),
+    queryFn: async () =>
+      (
+        await http.get<PositionCloseExecutionRead[]>(
+          `/api/v1/positions/${positionId}/close-executions`
+        )
+      ).data,
+    enabled: !!positionId && enabled,
   });
 }

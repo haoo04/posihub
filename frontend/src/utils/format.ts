@@ -1,8 +1,12 @@
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
 import "dayjs/locale/zh-cn";
 
 dayjs.extend(relativeTime);
+dayjs.extend(utc);
+dayjs.extend(timezone);
 dayjs.locale("zh-cn");
 
 const MONEY_FMT = new Intl.NumberFormat("en-US", {
@@ -63,12 +67,12 @@ export function fmtPrice(value: number | null | undefined): string {
 
 export function fmtDateTime(value: string | null | undefined): string {
   if (!value) return "—";
-  return dayjs(value).format("YYYY-MM-DD HH:mm:ss");
+  return dayjs.utc(value).tz("Asia/Shanghai").format("YYYY-MM-DD HH:mm:ss");
 }
 
 export function fmtRelative(value: string | null | undefined): string {
   if (!value) return "—";
-  return dayjs(value).fromNow();
+  return dayjs.utc(value).tz("Asia/Shanghai").fromNow();
 }
 
 export function pnlClass(value: number | null | undefined): string {

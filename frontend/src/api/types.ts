@@ -3,6 +3,7 @@
 
 export type DataSource = "api" | "manual" | "simulated";
 export type PositionSide = "long" | "short" | "net";
+export type PositionOrderStatus = "open" | "partial" | "closed";
 export type InstrumentType = "spot" | "perp" | "futures";
 export type AccountType =
   | "spot"
@@ -178,4 +179,81 @@ export interface SymbolMapping {
   contract_size: number;
   is_active: boolean;
   created_at: string;
+}
+
+export interface PositionOrderBase {
+  source: DataSource;
+  source_order_id: string | null;
+  open_qty: number;
+  entry_price: number;
+  leverage: number;
+  margin: number | null;
+  mmr: number | null;
+  liquidation_price: number | null;
+}
+
+export interface PositionOrderCreate extends PositionOrderBase {
+  position_id: number;
+}
+
+export interface PositionOrderRead extends PositionOrderBase {
+  id: number;
+  position_id: number;
+  status: PositionOrderStatus;
+  remaining_qty: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PositionOrderWithPnL extends PositionOrderRead {
+  unrealized_pnl: number;
+  unrealized_pnl_pct: number;
+  mark_price: number;
+}
+
+export interface PositionOrderUpdate {
+  open_qty?: number;
+  remaining_qty?: number;
+  entry_price?: number;
+  leverage?: number;
+  margin?: number | null;
+  mmr?: number | null;
+  liquidation_price?: number | null;
+  status?: PositionOrderStatus;
+}
+
+export interface PositionCloseRequest {
+  close_qty: number;
+  close_price: number;
+  source?: DataSource;
+  source_order_id?: string | null;
+}
+
+export interface PositionOrderMatchRead {
+  id: number;
+  open_order_id: number;
+  close_order_id: number;
+  matched_qty: number;
+  open_price: number;
+  close_price: number;
+  realized_pnl: number;
+  matched_at: string;
+}
+
+export interface PositionCloseExecutionRead {
+  id: number;
+  position_id: number;
+  close_qty: number;
+  close_price: number;
+  source: DataSource;
+  source_order_id: string | null;
+  realized_pnl: number;
+  created_at: string;
+}
+
+export interface FifoCloseResponse {
+  execution: PositionCloseExecutionRead;
+  matches: PositionOrderMatchRead[];
+  affected_orders: PositionOrderRead[];
+  realized_pnl: number;
 }

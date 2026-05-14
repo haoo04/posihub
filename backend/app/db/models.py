@@ -61,6 +61,12 @@ class ManualEntryType(str, Enum):
     SNAPSHOT = "snapshot"
 
 
+class PositionOrderStatus(str, Enum):
+    OPEN = "open"
+    PARTIAL = "partial"
+    CLOSED = "closed"
+
+
 # ---------------------------------------------------------------------------
 # Configuration tables
 # ---------------------------------------------------------------------------
@@ -166,6 +172,89 @@ class PositionCurrent(SQLModel, table=True):
     margin_mode: Optional[str] = Field(default=None, max_length=16)
     updated_at: datetime = Field(default_factory=_utcnow)
     source: DataSource = Field(default=DataSource.API)
+
+
+class PositionOrder(SQLModel, table=True):
+    """Order-level position tracking.
+
+    Each order represents an individual entry into a position,
+    allowing for order-level risk and PnL calculation.
+    """
+    __tablename__ = "position_orders"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    position_id: int = Field(foreign_key="positions_current.id", index=True)
+
+    # Order source tracking
+    source: DataSource = Field(default=DataSource.MANUAL)
+    source_order_id: Optional[str] = Field(default=None, max_length=128)
+
+    # Order status
+    status: PositionOrderStatus = Field(default=PositionOrderStatus.OPEN)
+
+    # Quantity tracking
+    open_qty: float = Field(default=0.0)  # Original opening quantity
+    remaining_qty: float = Field(default=0.0)  # Current remaining quantity
+
+    # Price and risk parameters
+    entry_price: float = Field(default=0.0)
+    leverage: float = Field(default=1.0)
+    margin: Optional[float] = Field(default=None)  # Margin amount in quote currency
+    mmr: Optional[float] = Field(default=None)  # Maintenance margin rate
+    liquidation_price: Optional[float] = Field(default=None)
+
+    # Timestamps
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class PositionCloseExecution(SQLModel, table=True):
+    """A single user/API initiated close action against a position.
+
+    One execution may consume multiple ``PositionOrder`` rows under the
+    FIFO matching rule and therefore yield multiple
+    ``PositionOrderMatch`` rows.
+    """
+
+    __tablename__ = "position_close_executions"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    position_id: int = Field(foreign_key="positions_current.id", index=True)
+
+    close_qty: float = Field(default=0.0)
+    close_price: float = Field(default=0.0)
+
+    source: DataSource = Field(default=DataSource.MANUAL)
+    source_order_id: Optional[str] = Field(default=None, max_length=128)
+
+    realized_pnl: float = Field(default=0.0)
+
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class PositionOrderMatch(SQLModel, table=True):
+    """FIFO match record between an open ``PositionOrder`` leg and a
+    ``PositionCloseExecution`` leg.
+
+    Each row represents one slice of consumption: ``matched_qty`` units
+    of the open leg were closed at ``close_price`` against ``open_price``,
+    yielding ``realized_pnl`` for that slice.
+    """
+
+    __tablename__ = "position_order_matches"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    open_order_id: int = Field(foreign_key="position_orders.id", index=True)
+    close_order_id: int = Field(
+        foreign_key="position_close_executions.id", index=True
+    )
+
+    matched_qty: float = Field(default=0.0)
+    open_price: float = Field(default=0.0)
+    close_price: float = Field(default=0.0)
+    realized_pnl: float = Field(default=0.0)
+
+    matched_at: datetime = Field(default_factory=_utcnow)
 
 
 # ---------------------------------------------------------------------------

@@ -25,6 +25,7 @@ import {
 import { PageHeader } from "@/components/PageHeader";
 import { StatusDot } from "@/components/StatusDot";
 import { AsyncBoundary } from "@/components/AsyncBoundary";
+import RelativeTime from "@/components/RelativeTime";
 import {
   useAccounts,
   useCreateAccount,
@@ -35,7 +36,6 @@ import {
 } from "@/api/hooks";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import type { Account, AccountCreate, AccountType } from "@/api/types";
-import { fmtRelative } from "@/utils/format";
 
 const { Text } = Typography;
 
@@ -150,11 +150,16 @@ export function AccountsPage() {
             : row.last_sync_status === "error"
             ? "error"
             : "idle";
-        const label =
-          row.last_sync_at ? fmtRelative(row.last_sync_at) : "未同步";
         return (
           <Space size={6}>
-            <StatusDot status={status} label={label} />
+            <StatusDot status={status} />
+            {row.last_sync_at ? (
+              <RelativeTime value={row.last_sync_at} style={{ fontSize: 13 }} />
+            ) : (
+              <Text type="secondary" style={{ fontSize: 13 }}>
+                未同步
+              </Text>
+            )}
             {row.consecutive_failures > 0 && (
               <Tooltip title={row.last_sync_error ?? ""}>
                 <Tag color="red" style={{ margin: 0 }}>

@@ -43,6 +43,9 @@ class Settings(BaseSettings):
         default="http://127.0.0.1:5173,http://localhost:5173"
     )
 
+    # Feature flags
+    enable_position_order_edit: bool = Field(default=True)
+
     @field_validator("daily_snapshot_time")
     @classmethod
     def _validate_daily_snapshot_time(cls, value: str) -> str:
