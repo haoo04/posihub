@@ -17,10 +17,11 @@ import { AsyncBoundary } from "@/components/AsyncBoundary";
 import { PnlText } from "@/components/PnlText";
 import { SideTag } from "@/components/SideTag";
 import { PositionOrdersTable } from "@/components/PositionOrdersTable";
+import RelativeTime from "@/components/RelativeTime";
 import { useAccounts, usePositions } from "@/api/hooks";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import type { PositionMerged, PositionSplit } from "@/api/types";
-import { fmtPrice, fmtQty, fmtRelative } from "@/utils/format";
+import { fmtPrice, fmtQty } from "@/utils/format";
 
 const { Text } = Typography;
 
@@ -124,9 +125,7 @@ export function PositionsPage() {
       dataIndex: "updated_at",
       align: "right" as const,
       render: (v: string) => (
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {fmtRelative(v)}
-        </Text>
+        <RelativeTime value={v} style={{ fontSize: 12 }} />
       ),
     },
   ];
@@ -268,9 +267,10 @@ export function PositionsPage() {
             </div>
           </Col>
           <Col span={24}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              更新: {fmtRelative(position.updated_at)}
-            </Text>
+            <span style={{ fontSize: 12 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>更新: </Text>
+              <RelativeTime value={position.updated_at} style={{ fontSize: 12 }} />
+            </span>
           </Col>
         </Row>
 

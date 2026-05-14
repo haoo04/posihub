@@ -19,9 +19,10 @@ import {
   ScissorOutlined,
 } from "@ant-design/icons";
 import { PnlText } from "./PnlText";
+import RelativeTime from "./RelativeTime";
 import { useDeletePositionOrder, usePositionOrders } from "@/api/hooks";
 import type { PositionOrderWithPnL } from "@/api/types";
-import { fmtPrice, fmtQty, fmtRelative } from "@/utils/format";
+import { fmtPrice, fmtQty } from "@/utils/format";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { PositionOrderModal } from "./PositionOrderModal";
 import { PositionCloseFifoModal } from "./PositionCloseFifoModal";
@@ -206,9 +207,7 @@ export function PositionOrdersTable({ positionId }: PositionOrdersTableProps) {
       align: "right" as const,
       width: 100,
       render: (v: string) => (
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {fmtRelative(v)}
-        </Text>
+        <RelativeTime value={v} style={{ fontSize: 12 }} />
       ),
     },
     {
@@ -368,9 +367,7 @@ export function PositionOrdersTable({ positionId }: PositionOrdersTableProps) {
               创建
             </Text>
             <div>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {fmtRelative(order.created_at)}
-              </Text>
+              <RelativeTime value={order.created_at} style={{ fontSize: 12 }} />
             </div>
           </Col>
         </Row>
