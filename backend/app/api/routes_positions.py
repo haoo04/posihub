@@ -20,12 +20,17 @@ from ..schemas.position_order import (
     PositionCloseRequest,
     PositionOrderMatchRead,
     PositionOrderRead,
+    SpecifiedCloseRequest,
 )
 from ..services.aggregate.position_aggregator import (
     PositionInput,
     aggregate_positions,
 )
-from ..services.position_order_close import FifoCloseError, fifo_close_position
+from ..services.position_order_close import (
+    FifoCloseError,
+    fifo_close_position,
+    specified_close_position,
+)
 from .deps import SessionDep
 
 router = APIRouter(prefix="/api/v1/positions", tags=["positions"])
@@ -117,13 +122,60 @@ def close_position_fifo(
     )
 
 
+@router.post(
+    "/{position_id}/close-specified",
+    response_model=FifoCloseResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def close_position_specified(
+    session: SessionDep,
+    position_id: int,
+    payload: SpecifiedCloseRequest,
+) -> FifoCloseResponse:
+    """Close using explicit ``PositionOrder`` legs (non-FIFO order).
+
+    ``legs`` must list each ``open_order_id`` at most once; quantities
+    must sum to ``close_qty`` and not exceed each order's ``remaining_qty``.
+    """
+
+    try:
+        result = specified_close_position(
+            session,
+            position_id=position_id,
+            close_qty=payload.close_qty,
+            close_price=payload.close_price,
+            legs=[(leg.open_order_id, leg.qty) for leg in payload.legs],
+            source=payload.source,
+            source_order_id=payload.source_order_id,
+        )
+    except FifoCloseError as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+
+    session.commit()
+    for order in result.affected_orders:
+        session.refresh(order)
+    session.refresh(result.execution)
+
+    return FifoCloseResponse(
+        execution=PositionCloseExecutionRead.model_validate(result.execution),
+        matches=[PositionOrderMatchRead.model_validate(m) for m in result.matches],
+        affected_orders=[
+            PositionOrderRead.model_validate(o) for o in result.affected_orders
+        ],
+        realized_pnl=result.realized_pnl,
+    )
+
+
 @router.get(
     "/{position_id}/matches", response_model=list[PositionOrderMatchRead]
 )
 def list_position_matches(
     session: SessionDep, position_id: int
 ) -> list[PositionOrderMatchRead]:
-    """List FIFO match rows for a given position (newest first)."""
+    """List match rows for a given position (newest first)."""
 
     if session.get(PositionCurrent, position_id) is None:
         raise HTTPException(
@@ -152,7 +204,7 @@ def list_position_matches(
 def list_position_close_executions(
     session: SessionDep, position_id: int
 ) -> list[PositionCloseExecutionRead]:
-    """List all FIFO close executions for a position (newest first)."""
+    """List close executions for a position (newest first)."""
 
     if session.get(PositionCurrent, position_id) is None:
         raise HTTPException(

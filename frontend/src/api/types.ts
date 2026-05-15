@@ -229,6 +229,19 @@ export interface PositionCloseRequest {
   source_order_id?: string | null;
 }
 
+export interface SpecifiedCloseLeg {
+  open_order_id: number;
+  qty: number;
+}
+
+export interface SpecifiedCloseRequest {
+  close_qty: number;
+  close_price: number;
+  legs: SpecifiedCloseLeg[];
+  source?: DataSource;
+  source_order_id?: string | null;
+}
+
 export interface PositionOrderMatchRead {
   id: number;
   open_order_id: number;

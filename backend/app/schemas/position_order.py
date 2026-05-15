@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
+from pydantic import Field
+
 from ..db.models import DataSource, PositionOrderStatus
 from .common import APIModel
 
@@ -56,6 +58,23 @@ class PositionCloseRequest(APIModel):
 
     close_qty: float
     close_price: float
+    source: DataSource = DataSource.MANUAL
+    source_order_id: Optional[str] = None
+
+
+class SpecifiedCloseLeg(APIModel):
+    """One open ``PositionOrder`` slice in a user-specified close."""
+
+    open_order_id: int
+    qty: float
+
+
+class SpecifiedCloseRequest(APIModel):
+    """User-chosen pairing of open legs for a close of ``close_qty``."""
+
+    close_qty: float
+    close_price: float
+    legs: list[SpecifiedCloseLeg] = Field(min_length=1)
     source: DataSource = DataSource.MANUAL
     source_order_id: Optional[str] = None
 
