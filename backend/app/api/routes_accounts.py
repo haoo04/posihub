@@ -163,4 +163,5 @@ def trigger_sync(account_id: int, session: SessionDep) -> AccountSyncStatus:
         success=outcome.success,
         message=outcome.message,
         synced_at=outcome.synced_at,
+        unmapped_symbols=outcome.unmapped_symbols,
     )

@@ -87,7 +87,16 @@ def normalize_positions(
     raws: list[RawPosition],
     mapper: SymbolMapper,
     source: DataSource = DataSource.API,
+    unmapped: Optional[list[str]] = None,
 ) -> list[NormalizedPosition]:
+    """Map raw positions to :class:`NormalizedPosition`.
+
+    If ``unmapped`` is provided, any ``raw_symbol`` that could not be resolved
+    via the whitelist or heuristic is appended to it. The position itself is
+    still emitted, falling back to the raw symbol as canonical so the user
+    sees the data and can decide to add a mapping later.
+    """
+
     now = _utcnow()
     out: list[NormalizedPosition] = []
 
@@ -99,6 +108,8 @@ def normalize_positions(
             contract_size=raw.contract_size,
         )
         if canonical is None:
+            if unmapped is not None:
+                unmapped.append(raw.raw_symbol)
             canonical = CanonicalSymbol(
                 canonical=raw.raw_symbol,
                 base_asset="",
@@ -158,6 +169,81 @@ def upsert_balances(
     return len(items)
 
 
+def merge_positions(
+    items: list[NormalizedPosition],
+) -> list[NormalizedPosition]:
+    """Merge positions sharing the same ``(canonical_symbol, side)``.
+
+    Two raw symbols on the same exchange can map to a single canonical key
+    (e.g. after a symbol-mapping whitelist update). The ``PositionCurrent``
+    table enforces ``UniqueConstraint(account_id, canonical_symbol, side)``,
+    so we collapse such duplicates before persistence.
+
+    Merge rules:
+    - ``qty``, ``unrealized_pnl``: summed.
+    - ``entry_price``: quantity-weighted average (falls back to first non-zero
+      entry when total qty is zero).
+    - ``mark_price``: quantity-weighted average across non-zero-qty legs
+      (latest non-zero otherwise).
+    - ``leverage``, ``margin_mode``: first non-zero / non-null wins.
+    - ``raw_symbol``: kept from the first leg for traceability.
+    """
+
+    if not items:
+        return items
+
+    grouped: dict[tuple[str, PositionSide], list[NormalizedPosition]] = {}
+    order: list[tuple[str, PositionSide]] = []
+    for item in items:
+        key = (item.canonical_symbol, item.side)
+        if key not in grouped:
+            grouped[key] = []
+            order.append(key)
+        grouped[key].append(item)
+
+    merged: list[NormalizedPosition] = []
+    for key in order:
+        legs = grouped[key]
+        if len(legs) == 1:
+            merged.append(legs[0])
+            continue
+
+        total_qty = sum(leg.qty for leg in legs)
+        weighted_entry = sum(leg.entry_price * leg.qty for leg in legs)
+        weighted_mark = sum(leg.mark_price * leg.qty for leg in legs)
+        unrealized = sum(leg.unrealized_pnl for leg in legs)
+
+        if total_qty != 0:
+            entry_price = weighted_entry / total_qty
+            mark_price = weighted_mark / total_qty
+        else:
+            entry_price = next((leg.entry_price for leg in legs if leg.entry_price), 0.0)
+            mark_price = next((leg.mark_price for leg in legs if leg.mark_price), 0.0)
+
+        leverage = next((leg.leverage for leg in legs if leg.leverage), legs[0].leverage)
+        margin_mode = next(
+            (leg.margin_mode for leg in legs if leg.margin_mode), legs[0].margin_mode
+        )
+
+        merged.append(
+            NormalizedPosition(
+                account_id=legs[0].account_id,
+                canonical_symbol=legs[0].canonical_symbol,
+                side=legs[0].side,
+                qty=total_qty,
+                entry_price=entry_price,
+                mark_price=mark_price,
+                unrealized_pnl=unrealized,
+                leverage=leverage,
+                margin_mode=margin_mode,
+                source=legs[0].source,
+                updated_at=legs[0].updated_at,
+                raw_symbol=legs[0].raw_symbol,
+            )
+        )
+    return merged
+
+
 def upsert_positions(
     session: Session, account_id: int, items: list[NormalizedPosition]
 ) -> int:
@@ -168,7 +254,8 @@ def upsert_positions(
     session.exec(  # type: ignore[call-arg]
         delete(PositionCurrent).where(PositionCurrent.account_id == account_id)
     )
-    for item in items:
+    merged = merge_positions(items)
+    for item in merged:
         session.add(
             PositionCurrent(
                 account_id=item.account_id,
@@ -184,4 +271,4 @@ def upsert_positions(
                 updated_at=item.updated_at,
             )
         )
-    return len(items)
+    return len(merged)

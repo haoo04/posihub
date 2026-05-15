@@ -59,3 +59,4 @@ class AccountSyncStatus(APIModel):
     success: bool
     message: str
     synced_at: datetime
+    unmapped_symbols: list[str] = []

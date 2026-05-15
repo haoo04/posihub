@@ -15,6 +15,7 @@ A failure of one account never propagates to others.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
@@ -25,6 +26,7 @@ def _utcnow() -> datetime:
 
 from sqlmodel import Session
 
+from ..core.config import get_settings
 from ..core.logging import get_logger
 from ..db.models import Account, DataSource
 from ..db.session import session_scope
@@ -52,6 +54,7 @@ class SyncOutcome:
     balance_count: int = 0
     position_count: int = 0
     synced_at: datetime = field(default_factory=_utcnow)
+    unmapped_symbols: list[str] = field(default_factory=list)
 
 
 def _exchange_name(session: Session, account: Account) -> str:
@@ -95,17 +98,27 @@ def sync_account(session: Session, account: Account) -> SyncOutcome:
     normalised_balances = normalize_balances(
         account_id=account.id or 0, raws=balances, source=DataSource.API
     )
+    unmapped: list[str] = []
     normalised_positions = normalize_positions(
         account_id=account.id or 0,
         exchange_name=_exchange_name(session, account),
         raws=positions,
         mapper=mapper,
         source=DataSource.API,
+        unmapped=unmapped,
     )
+
+    if unmapped:
+        _logger.warning(
+            "sync: unresolved symbols account=%s exchange=%s symbols=%s",
+            account.id,
+            _exchange_name(session, account),
+            unmapped,
+        )
 
     try:
         upsert_balances(session, account.id or 0, normalised_balances)
-        upsert_positions(session, account.id or 0, normalised_positions)
+        rows_written = upsert_positions(session, account.id or 0, normalised_positions)
     except Exception as exc:
         return _record_failure(session, account, f"persist failed: {exc}", started)
 
@@ -120,8 +133,9 @@ def sync_account(session: Session, account: Account) -> SyncOutcome:
         success=True,
         message="ok",
         balance_count=len(normalised_balances),
-        position_count=len(normalised_positions),
+        position_count=rows_written,
         synced_at=started,
+        unmapped_symbols=list(unmapped),
     )
 
 
@@ -150,28 +164,57 @@ def sync_account_by_id(account_id: int) -> SyncOutcome:
         return sync_account(session, account)
 
 
-def sync_all_accounts() -> list[SyncOutcome]:
-    """Run sync for every enabled account; isolating failures per account."""
+def _sync_one_committed(account_id: int) -> SyncOutcome:
+    """Sync a single account inside its own session and commit at the end.
 
-    results: list[SyncOutcome] = []
-    with session_scope() as session:
-        accounts = list_active_accounts(session)
+    Designed to be invoked from worker threads in :func:`sync_all_accounts`.
+    The session is never shared across threads; only ``account_id`` (a plain
+    int) crosses the thread boundary.
+    """
 
-    for acc in accounts:
-        try:
-            with session_scope() as session:
-                refreshed: Optional[Account] = session.get(Account, acc.id)
-                if refreshed is None or not refreshed.enabled:
-                    continue
-                results.append(sync_account(session, refreshed))
-        except Exception as exc:  # pragma: no cover - belt and braces
-            _logger.exception("unexpected sync failure account=%s", acc.id)
-            results.append(
-                SyncOutcome(
-                    account_id=acc.id or 0,
+    try:
+        with session_scope() as session:
+            account: Optional[Account] = session.get(Account, account_id)
+            if account is None or not account.enabled:
+                return SyncOutcome(
+                    account_id=account_id,
                     success=False,
-                    message=f"unexpected error: {exc}",
+                    message="account missing or disabled",
                     synced_at=_utcnow(),
                 )
-            )
+            return sync_account(session, account)
+    except Exception as exc:  # pragma: no cover - belt and braces
+        _logger.exception("unexpected sync failure account=%s", account_id)
+        return SyncOutcome(
+            account_id=account_id,
+            success=False,
+            message=f"unexpected error: {exc}",
+            synced_at=_utcnow(),
+        )
+
+
+def sync_all_accounts(max_workers: Optional[int] = None) -> list[SyncOutcome]:
+    """Run sync for every enabled account concurrently.
+
+    Each account is processed in its own thread with an independent
+    :class:`Session`; a failure of one account never propagates to others.
+    Returns outcomes in completion order.
+    """
+
+    with session_scope() as session:
+        account_ids = [
+            acc.id for acc in list_active_accounts(session) if acc.id is not None
+        ]
+
+    if not account_ids:
+        return []
+
+    workers = max_workers if max_workers is not None else get_settings().sync_max_workers
+    workers = max(1, min(workers, len(account_ids)))
+
+    results: list[SyncOutcome] = []
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="posihub-sync") as pool:
+        futures = [pool.submit(_sync_one_committed, aid) for aid in account_ids]
+        for fut in as_completed(futures):
+            results.append(fut.result())
     return results
