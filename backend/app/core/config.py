@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     posihub_encryption_key: str | None = Field(default=None)
 
     sync_interval_minutes: int = Field(default=5, ge=1, le=120)
+    sync_max_workers: int = Field(default=4, ge=1, le=32)
     daily_snapshot_time: str = Field(default="23:55")
 
     cors_allow_origins: str = Field(
