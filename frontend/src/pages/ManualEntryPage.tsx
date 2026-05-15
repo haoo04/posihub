@@ -228,7 +228,8 @@ export function ManualEntryPage() {
                     <Col span={5}>
                       <Form.Item
                         name={[field.name, "asset"]}
-                        rules={[{ required: true, message: "asset" }]}
+                        label="资产"
+                        rules={[{ required: true, message: "请输入资产" }]}
                         style={{ marginBottom: 0 }}
                       >
                         <Input placeholder="USDT" />
@@ -237,34 +238,37 @@ export function ManualEntryPage() {
                     <Col span={6}>
                       <Form.Item
                         name={[field.name, "equity"]}
-                        rules={[{ required: true, message: "equity" }]}
+                        label="权益"
+                        rules={[{ required: true, message: "请输入权益" }]}
                         style={{ marginBottom: 0 }}
                       >
                         <InputNumber
                           style={{ width: "100%" }}
-                          placeholder="权益"
+                          placeholder="0"
                         />
                       </Form.Item>
                     </Col>
                     <Col span={6}>
                       <Form.Item
                         name={[field.name, "available"]}
+                        label="可用"
                         style={{ marginBottom: 0 }}
                       >
                         <InputNumber
                           style={{ width: "100%" }}
-                          placeholder="可用"
+                          placeholder="0"
                         />
                       </Form.Item>
                     </Col>
                     <Col span={5}>
                       <Form.Item
                         name={[field.name, "frozen"]}
+                        label="冻结"
                         style={{ marginBottom: 0 }}
                       >
                         <InputNumber
                           style={{ width: "100%" }}
-                          placeholder="冻结"
+                          placeholder="0"
                         />
                       </Form.Item>
                     </Col>
@@ -306,7 +310,8 @@ export function ManualEntryPage() {
                       <Col span={6}>
                         <Form.Item
                           name={[field.name, "canonical_symbol"]}
-                          rules={[{ required: true, message: "symbol" }]}
+                          label="交易对"
+                          rules={[{ required: true, message: "请输入交易对" }]}
                           style={{ marginBottom: 0 }}
                         >
                           <Input placeholder="BTC-USDT-PERP" />
@@ -315,7 +320,8 @@ export function ManualEntryPage() {
                       <Col span={3}>
                         <Form.Item
                           name={[field.name, "side"]}
-                          rules={[{ required: true }]}
+                          label="方向"
+                          rules={[{ required: true, message: "请选择方向" }]}
                           style={{ marginBottom: 0 }}
                         >
                           <Select options={SIDE_OPTIONS} />
@@ -324,47 +330,51 @@ export function ManualEntryPage() {
                       <Col span={3}>
                         <Form.Item
                           name={[field.name, "qty"]}
-                          rules={[{ required: true, message: "qty" }]}
+                          label="数量"
+                          rules={[{ required: true, message: "请输入数量" }]}
                           style={{ marginBottom: 0 }}
                         >
                           <InputNumber
                             style={{ width: "100%" }}
-                            placeholder="数量"
+                            placeholder="0"
                           />
                         </Form.Item>
                       </Col>
                       <Col span={4}>
                         <Form.Item
                           name={[field.name, "entry_price"]}
-                          rules={[{ required: true, message: "entry" }]}
+                          label="开仓价"
+                          rules={[{ required: true, message: "请输入开仓价" }]}
                           style={{ marginBottom: 0 }}
                         >
                           <InputNumber
                             style={{ width: "100%" }}
-                            placeholder="均价"
+                            placeholder="0"
                           />
                         </Form.Item>
                       </Col>
                       <Col span={3}>
                         <Form.Item
                           name={[field.name, "mark_price"]}
-                          rules={[{ required: true, message: "mark" }]}
+                          label="标记价"
+                          rules={[{ required: true, message: "请输入标记价" }]}
                           style={{ marginBottom: 0 }}
                         >
                           <InputNumber
                             style={{ width: "100%" }}
-                            placeholder="标记"
+                            placeholder="0"
                           />
                         </Form.Item>
                       </Col>
                       <Col span={3}>
                         <Form.Item
                           name={[field.name, "unrealized_pnl"]}
+                          label="未实现盈亏"
                           style={{ marginBottom: 0 }}
                         >
                           <InputNumber
                             style={{ width: "100%" }}
-                            placeholder="未实现"
+                            placeholder="0"
                           />
                         </Form.Item>
                       </Col>

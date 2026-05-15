@@ -17,6 +17,7 @@ import {
   ExclamationCircleOutlined,
   PlusOutlined,
   ScissorOutlined,
+  SwapOutlined,
 } from "@ant-design/icons";
 import { PnlText } from "./PnlText";
 import RelativeTime from "./RelativeTime";
@@ -26,6 +27,7 @@ import { fmtPrice, fmtQty } from "@/utils/format";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { PositionOrderModal } from "./PositionOrderModal";
 import { PositionCloseFifoModal } from "./PositionCloseFifoModal";
+import { PositionCloseSpecifiedModal } from "./PositionCloseSpecifiedModal";
 
 const { Text } = Typography;
 const { confirm } = Modal;
@@ -68,6 +70,8 @@ export function PositionOrdersTable({ positionId }: PositionOrdersTableProps) {
   );
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isCloseModalOpen, setIsCloseModalOpen] = useState(false);
+  const [isSpecifiedCloseModalOpen, setIsSpecifiedCloseModalOpen] =
+    useState(false);
 
   const defaultClosePrice = orders?.[0]?.mark_price;
   const hasOpenQty = (orders ?? []).some((o) => o.remaining_qty > 0);
@@ -417,6 +421,14 @@ export function PositionOrdersTable({ positionId }: PositionOrdersTableProps) {
             FIFO 平仓
           </Button>
           <Button
+            size="small"
+            icon={<SwapOutlined />}
+            onClick={() => setIsSpecifiedCloseModalOpen(true)}
+            disabled={!hasOpenQty}
+          >
+            指定配对
+          </Button>
+          <Button
             type="primary"
             size="small"
             icon={<PlusOutlined />}
@@ -471,6 +483,14 @@ export function PositionOrdersTable({ positionId }: PositionOrdersTableProps) {
         defaultClosePrice={defaultClosePrice}
         onCancel={() => setIsCloseModalOpen(false)}
         onSuccess={() => setIsCloseModalOpen(false)}
+      />
+
+      <PositionCloseSpecifiedModal
+        open={isSpecifiedCloseModalOpen}
+        positionId={positionId}
+        defaultClosePrice={defaultClosePrice}
+        onCancel={() => setIsSpecifiedCloseModalOpen(false)}
+        onSuccess={() => setIsSpecifiedCloseModalOpen(false)}
       />
     </div>
   );

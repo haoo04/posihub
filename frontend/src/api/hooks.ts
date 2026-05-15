@@ -26,6 +26,7 @@ import type {
   PositionOrderWithPnL,
   PositionSnapshot,
   PositionSplit,
+  SpecifiedCloseRequest,
   SymbolMapping,
 } from "./types";
 
@@ -310,6 +311,36 @@ export function useFifoClosePosition() {
       (
         await http.post<FifoCloseResponse>(
           `/api/v1/positions/${positionId}/close-fifo`,
+          payload
+        )
+      ).data,
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ["position-orders"] });
+      qc.invalidateQueries({ queryKey: ["positions"] });
+      qc.invalidateQueries({
+        queryKey: queryKeys.positionMatches(variables.positionId),
+      });
+      qc.invalidateQueries({
+        queryKey: queryKeys.positionCloseExecutions(variables.positionId),
+      });
+      qc.invalidateQueries({ queryKey: queryKeys.overview });
+    },
+  });
+}
+
+export function useSpecifiedClosePosition() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      positionId,
+      payload,
+    }: {
+      positionId: number;
+      payload: SpecifiedCloseRequest;
+    }) =>
+      (
+        await http.post<FifoCloseResponse>(
+          `/api/v1/positions/${positionId}/close-specified`,
           payload
         )
       ).data,
