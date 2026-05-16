@@ -3,7 +3,8 @@
 See ``docs/order-level-position.md`` (Phase 2) for the full specification.
 A close action consumes ``PositionOrder`` rows, recording each slice as a
 ``PositionOrderMatch`` tied to a single ``PositionCloseExecution`` and
-decrementing the parent ``PositionCurrent.qty`` accordingly.
+refreshing the parent ``PositionCurrent`` (``qty``, ``entry_price``,
+``unrealized_pnl``) from remaining order legs.
 
 The whole operation runs inside a single transaction: any failure rolls
 back so the position state never ends up partially updated.
@@ -110,6 +111,60 @@ def _apply_close_assignments(
     return matches, affected, total_realized
 
 
+def _refresh_position_fields_from_orders(
+    session: Session,
+    position: PositionCurrent,
+    *,
+    now: datetime,
+) -> None:
+    """Sync ``qty``, ``entry_price``, and ``unrealized_pnl`` from order legs.
+
+    If this position has no ``PositionOrder`` rows (exchange-only row), fields
+    are left unchanged. Otherwise remaining quantities are authoritative for
+    ``qty``; unrealized PnL matches the same convention as
+    ``routes_position_orders.calculate_order_pnl`` summed over open quantity
+    on each leg.
+    """
+
+    orders = list(
+        session.exec(
+            select(PositionOrder).where(PositionOrder.position_id == position.id)
+        ).all()
+    )
+    if not orders:
+        return
+
+    total_rem = sum(float(o.remaining_qty or 0.0) for o in orders)
+    if total_rem <= QTY_EPSILON:
+        position.qty = 0.0
+        position.entry_price = 0.0
+        position.unrealized_pnl = 0.0
+        position.updated_at = now
+        return
+
+    mark = float(position.mark_price or 0.0)
+    side = position.side
+
+    upnl = 0.0
+    cost = 0.0
+    for o in orders:
+        rq = float(o.remaining_qty or 0.0)
+        if rq <= QTY_EPSILON:
+            continue
+        ep = float(o.entry_price or 0.0)
+        cost += rq * ep
+        if side == PositionSide.LONG:
+            upnl += (mark - ep) * rq
+        elif side == PositionSide.SHORT:
+            upnl += (ep - mark) * rq
+
+    position.qty = total_rem
+    position.unrealized_pnl = upnl
+    if side in (PositionSide.LONG, PositionSide.SHORT):
+        position.entry_price = cost / total_rem
+    position.updated_at = now
+
+
 def fifo_close_position(
     session: Session,
     *,
@@ -198,11 +253,7 @@ def fifo_close_position(
         now=now,
     )
 
-    new_qty = position.qty - close_qty
-    if abs(new_qty) <= QTY_EPSILON:
-        new_qty = 0.0
-    position.qty = new_qty
-    position.updated_at = now
+    _refresh_position_fields_from_orders(session, position, now=now)
     session.add(position)
 
     session.flush()
@@ -308,11 +359,7 @@ def specified_close_position(
         now=now,
     )
 
-    new_qty = position.qty - close_qty
-    if abs(new_qty) <= QTY_EPSILON:
-        new_qty = 0.0
-    position.qty = new_qty
-    position.updated_at = now
+    _refresh_position_fields_from_orders(session, position, now=now)
     session.add(position)
 
     session.flush()

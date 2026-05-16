@@ -20,6 +20,7 @@ class PositionRead(APIModel):
     entry_price: float
     mark_price: float
     unrealized_pnl: float
+    realized_pnl: float = 0.0
     leverage: float
     margin_mode: Optional[str] = None
     updated_at: datetime
@@ -33,6 +34,7 @@ class PositionMerged(APIModel):
     avg_entry_price: float
     mark_price: float
     unrealized_pnl: float
+    realized_pnl: float = 0.0
     notional: float
     accounts: list[int] = Field(default_factory=list)
 

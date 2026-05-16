@@ -105,6 +105,12 @@ export function PositionsPage() {
       render: (v: number) => <PnlText value={v} />,
     },
     {
+      title: "已实现盈亏",
+      dataIndex: "realized_pnl",
+      align: "right" as const,
+      render: (v: number) => <PnlText value={v} />,
+    },
+    {
       title: "杠杆",
       dataIndex: "leverage",
       align: "right" as const,
@@ -171,6 +177,12 @@ export function PositionsPage() {
     {
       title: "未实现盈亏",
       dataIndex: "unrealized_pnl",
+      align: "right" as const,
+      render: (v: number) => <PnlText value={v} />,
+    },
+    {
+      title: "已实现盈亏",
+      dataIndex: "realized_pnl",
       align: "right" as const,
       render: (v: number) => <PnlText value={v} />,
     },
@@ -251,6 +263,14 @@ export function PositionsPage() {
             </Text>
             <div>
               <PnlText value={position.unrealized_pnl} />
+            </div>
+          </Col>
+          <Col span={12}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              已实现盈亏
+            </Text>
+            <div>
+              <PnlText value={position.realized_pnl} />
             </div>
           </Col>
           <Col span={12}>
@@ -348,6 +368,14 @@ export function PositionsPage() {
             </Text>
             <div>
               <PnlText value={position.unrealized_pnl} />
+            </div>
+          </Col>
+          <Col span={12}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              已实现盈亏
+            </Text>
+            <div>
+              <PnlText value={position.realized_pnl} />
             </div>
           </Col>
           <Col span={12}>

@@ -106,6 +106,9 @@ def test_specified_reverse_fifo_order(in_memory_session: Session) -> None:
     assert order_c.status == PositionOrderStatus.CLOSED
     assert position.qty == pytest.approx(0.5)
 
+    assert position.entry_price == pytest.approx(60000.0)
+    assert position.unrealized_pnl == pytest.approx((51000.0 - 60000.0) * 0.5)
+
     matched = [(m.open_order_id, m.matched_qty) for m in result.matches]
     assert matched == [
         (order_c.id, pytest.approx(0.7)),

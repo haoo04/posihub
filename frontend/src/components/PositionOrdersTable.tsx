@@ -166,6 +166,13 @@ export function PositionOrdersTable({ positionId }: PositionOrdersTableProps) {
       ),
     },
     {
+      title: "已实现盈亏",
+      dataIndex: "realized_pnl",
+      align: "right" as const,
+      width: 120,
+      render: (v: number) => <PnlText value={v} />,
+    },
+    {
       title: "杠杆",
       dataIndex: "leverage",
       align: "right" as const,
@@ -324,6 +331,14 @@ export function PositionOrdersTable({ positionId }: PositionOrdersTableProps) {
                 {order.unrealized_pnl >= 0 ? "+" : ""}
                 {order.unrealized_pnl_pct.toFixed(2)}%
               </Text>
+            </div>
+          </Col>
+          <Col span={24}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              已实现盈亏
+            </Text>
+            <div>
+              <PnlText value={order.realized_pnl} />
             </div>
           </Col>
           <Col span={12}>

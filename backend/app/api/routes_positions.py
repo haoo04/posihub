@@ -10,7 +10,6 @@ from sqlmodel import select
 from ..db.models import (
     PositionCloseExecution,
     PositionCurrent,
-    PositionOrder,
     PositionOrderMatch,
 )
 from ..schemas.position import PositionMerged, PositionRead
@@ -26,6 +25,7 @@ from ..services.aggregate.position_aggregator import (
     PositionInput,
     aggregate_positions,
 )
+from ..services.realized_pnl_query import realized_pnl_totals_by_position_id
 from ..services.position_order_close import (
     FifoCloseError,
     fifo_close_position,
@@ -42,9 +42,15 @@ def list_positions(
     view: str = Query("split", pattern="^(split|merged)$"),
 ) -> list[Any]:
     rows = list(session.exec(select(PositionCurrent)).all())
+    realized_by_pos = realized_pnl_totals_by_position_id(session)
 
     if view == "split":
-        return [PositionRead.model_validate(r) for r in rows]
+        out: list[PositionRead] = []
+        for r in rows:
+            data = r.model_dump()
+            data["realized_pnl"] = float(realized_by_pos.get(int(r.id or 0), 0.0))
+            out.append(PositionRead.model_validate(data))
+        return out
 
     inputs = [
         PositionInput(
@@ -55,6 +61,7 @@ def list_positions(
             entry_price=r.entry_price,
             mark_price=r.mark_price,
             unrealized_pnl=r.unrealized_pnl,
+            realized_pnl=float(realized_by_pos.get(int(r.id or 0), 0.0)),
         )
         for r in rows
     ]
@@ -67,6 +74,7 @@ def list_positions(
             avg_entry_price=item.avg_entry_price,
             mark_price=item.mark_price,
             unrealized_pnl=item.unrealized_pnl,
+            realized_pnl=item.realized_pnl,
             notional=item.notional,
             accounts=item.accounts,
         )

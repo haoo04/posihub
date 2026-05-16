@@ -28,6 +28,7 @@ class PositionInput:
     entry_price: float
     mark_price: float
     unrealized_pnl: float = 0.0
+    realized_pnl: float = 0.0
 
 
 @dataclass(slots=True)
@@ -38,6 +39,7 @@ class AggregatedPosition:
     avg_entry_price: float
     mark_price: float
     unrealized_pnl: float
+    realized_pnl: float
     notional: float
     accounts: list[int]
 
@@ -73,12 +75,14 @@ def _merge_group(group: list[PositionInput]) -> Optional[AggregatedPosition]:
     long_cost = 0.0
     short_cost = 0.0
     upnl_total = 0.0
+    rpnl_total = 0.0
     accounts: set[int] = set()
     last_mark = 0.0
 
     for p in group:
         accounts.add(p.account_id)
         upnl_total += p.unrealized_pnl
+        rpnl_total += p.realized_pnl
         if p.mark_price:
             last_mark = p.mark_price
         signed = _signed_qty(p.side, p.qty)
@@ -113,6 +117,7 @@ def _merge_group(group: list[PositionInput]) -> Optional[AggregatedPosition]:
         avg_entry_price=avg_entry,
         mark_price=last_mark,
         unrealized_pnl=upnl_total,
+        realized_pnl=rpnl_total,
         notional=notional,
         accounts=sorted(accounts),
     )

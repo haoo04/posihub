@@ -126,6 +126,9 @@ def test_partial_close_single_order_long(in_memory_session: Session) -> None:
     assert result.execution.realized_pnl == pytest.approx(800.0)
     assert result.realized_pnl == pytest.approx(800.0)
 
+    assert position.unrealized_pnl == pytest.approx((51000.0 - 50000.0) * 0.6)
+    assert position.entry_price == pytest.approx(50000.0)
+
 
 def test_multi_order_fifo_close_long(in_memory_session: Session) -> None:
     """Doc section 8 - FIFO across A=0.5, B=0.3, C=0.7; close 1.0."""
@@ -189,6 +192,9 @@ def test_multi_order_fifo_close_long(in_memory_session: Session) -> None:
     assert result.execution.realized_pnl == pytest.approx(expected_pnl)
     assert result.execution.close_qty == pytest.approx(1.0)
 
+    assert position.entry_price == pytest.approx(62000.0)
+    assert position.unrealized_pnl == pytest.approx((51000.0 - 62000.0) * 0.5)
+
 
 def test_short_side_realized_pnl_sign(in_memory_session: Session) -> None:
     """SHORT side: PnL = (entry - close) * qty."""
@@ -208,6 +214,9 @@ def test_short_side_realized_pnl_sign(in_memory_session: Session) -> None:
     )
 
     assert result.realized_pnl == pytest.approx((50000.0 - 49000.0) * 1.0)
+    in_memory_session.refresh(position)
+    assert position.qty == pytest.approx(1.0)
+    assert position.unrealized_pnl == pytest.approx((50000.0 - 49000.0) * 1.0)
 
 
 def test_over_close_raises(in_memory_session: Session) -> None:
