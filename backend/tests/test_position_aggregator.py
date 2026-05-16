@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app.db.models import PositionSide
 from app.services.aggregate.position_aggregator import (
     PositionInput,
@@ -17,6 +19,7 @@ def _make(
     entry: float,
     mark: float = 0.0,
     upnl: float = 0.0,
+    rpnl: float = 0.0,
 ) -> PositionInput:
     return PositionInput(
         account_id=account_id,
@@ -26,6 +29,7 @@ def _make(
         entry_price=entry,
         mark_price=mark,
         unrealized_pnl=upnl,
+        realized_pnl=rpnl,
     )
 
 
@@ -44,6 +48,7 @@ def test_aggregate_same_side_weighted_average() -> None:
     # weighted: (1*30000 + 3*32000)/4 == 31500
     assert merged.avg_entry_price == 31500.0
     assert merged.unrealized_pnl == -2000.0
+    assert merged.realized_pnl == 0.0
     assert merged.accounts == [1, 2]
 
 
@@ -59,6 +64,16 @@ def test_aggregate_offsetting_long_short() -> None:
     assert merged.qty == 3.0
     assert merged.avg_entry_price == 2000.0  # surviving long side weighted avg
     assert merged.unrealized_pnl == 400.0
+    assert merged.realized_pnl == 0.0
+
+
+def test_aggregate_sums_realized_pnl_across_accounts() -> None:
+    inputs = [
+        _make(1, "SOL-USDT-PERP", PositionSide.LONG, 2.0, 100.0, 110.0, 0.0, 50.0),
+        _make(2, "SOL-USDT-PERP", PositionSide.LONG, 1.0, 120.0, 110.0, 0.0, 125.5),
+    ]
+    merged = aggregate_positions(inputs)[0]
+    assert merged.realized_pnl == pytest.approx(175.5)
 
 
 def test_aggregate_perfect_hedge_drops_symbol() -> None:

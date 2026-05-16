@@ -10,6 +10,7 @@ from sqlmodel import select
 
 from ..core.config import get_settings
 from ..db.models import PositionCurrent, PositionOrder, PositionOrderStatus, PositionSide
+from ..services.realized_pnl_query import realized_pnl_totals_by_open_order_id
 from ..schemas.position_order import (
     PositionOrderCreate,
     PositionOrderRead,
@@ -85,12 +86,14 @@ def get_position_order(session: SessionDep, order_id: int) -> PositionOrderWithP
         )
 
     pnl, pnl_pct = calculate_order_pnl(order, position.mark_price, position.side)
+    rp_map = realized_pnl_totals_by_open_order_id(session, [int(order.id or 0)])
 
     return PositionOrderWithPnL(
         **order.model_dump(),
         unrealized_pnl=pnl,
         unrealized_pnl_pct=pnl_pct,
         mark_price=position.mark_price,
+        realized_pnl=float(rp_map.get(int(order.id or 0), 0.0)),
     )
 
 
@@ -195,16 +198,20 @@ def list_position_orders_with_pnl(
         ).all()
     )
 
-    # Calculate PnL for each order
+    order_ids = [int(o.id) for o in orders if o.id is not None]
+    rp_map = realized_pnl_totals_by_open_order_id(session, order_ids)
+
     result = []
     for order in orders:
         pnl, pnl_pct = calculate_order_pnl(order, position.mark_price, position.side)
+        oid = int(order.id or 0)
         result.append(
             PositionOrderWithPnL(
                 **order.model_dump(),
                 unrealized_pnl=pnl,
                 unrealized_pnl_pct=pnl_pct,
                 mark_price=position.mark_price,
+                realized_pnl=float(rp_map.get(oid, 0.0)),
             )
         )
 

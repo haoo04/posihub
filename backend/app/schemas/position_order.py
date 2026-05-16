@@ -51,6 +51,7 @@ class PositionOrderWithPnL(PositionOrderRead):
     unrealized_pnl: float
     unrealized_pnl_pct: float
     mark_price: float
+    realized_pnl: float = 0.0
 
 
 class PositionCloseRequest(APIModel):

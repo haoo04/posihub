@@ -77,6 +77,7 @@ export interface PositionSplit {
   entry_price: number;
   mark_price: number;
   unrealized_pnl: number;
+  realized_pnl: number;
   leverage: number;
   margin_mode: string | null;
   updated_at: string;
@@ -90,6 +91,7 @@ export interface PositionMerged {
   avg_entry_price: number;
   mark_price: number;
   unrealized_pnl: number;
+  realized_pnl: number;
   notional: number;
   accounts: number[];
 }
@@ -209,6 +211,7 @@ export interface PositionOrderWithPnL extends PositionOrderRead {
   unrealized_pnl: number;
   unrealized_pnl_pct: number;
   mark_price: number;
+  realized_pnl: number;
 }
 
 export interface PositionOrderUpdate {
