@@ -18,6 +18,22 @@ from .retry import call_with_retry
 
 _logger = get_logger(__name__)
 
+_BITGET_LINEAR_PRODUCT = "USDT-FUTURES"
+_BITGET_INVERSE_PRODUCT = "COIN-FUTURES"
+_BITGET_INVERSE_MARGIN_FALLBACK = ("BTC", "ETH")
+
+
+def bitget_fetch_params(exchange_name: str, default_sub_type: Optional[str]) -> dict[str, Any]:
+    """Explicit Bitget ``productType`` for balance/position API calls."""
+
+    if exchange_name != "bitget":
+        return {}
+    if default_sub_type == "inverse":
+        return {"productType": _BITGET_INVERSE_PRODUCT}
+    if default_sub_type == "linear":
+        return {"productType": _BITGET_LINEAR_PRODUCT}
+    return {}
+
 
 class UnsupportedExchange(RuntimeError):
     """Raised when the requested exchange id is not provided by ccxt."""
@@ -36,6 +52,7 @@ def _build_exchange(
     api_secret: Optional[str],
     passphrase: Optional[str],
     default_type: Optional[str],
+    default_sub_type: Optional[str] = None,
 ) -> Any:
     if exchange_id not in ccxt.exchanges:
         raise UnsupportedExchange(f"ccxt does not support exchange '{exchange_id}'")
@@ -51,8 +68,13 @@ def _build_exchange(
         options["secret"] = api_secret
     if passphrase:
         options["password"] = passphrase
+    ccxt_options: dict[str, Any] = {}
     if default_type:
-        options["options"] = {"defaultType": default_type}
+        ccxt_options["defaultType"] = default_type
+    if default_sub_type:
+        ccxt_options["defaultSubType"] = default_sub_type
+    if ccxt_options:
+        options["options"] = ccxt_options
 
     return klass(options)
 
@@ -68,24 +90,31 @@ class CcxtExchangeClient(ExchangeClient):
         api_secret: Optional[str] = None,
         passphrase: Optional[str] = None,
         default_type: Optional[str] = None,
+        default_sub_type: Optional[str] = None,
     ) -> None:
         self.exchange_name = exchange_id
         self._default_type = default_type
+        self._default_sub_type = default_sub_type
         self._client = _build_exchange(
             exchange_id,
             api_key=api_key,
             api_secret=api_secret,
             passphrase=passphrase,
             default_type=default_type,
+            default_sub_type=default_sub_type,
         )
 
     # ------------------------------------------------------------------
     # public API
     # ------------------------------------------------------------------
 
+    def _fetch_params(self) -> dict[str, Any]:
+        return bitget_fetch_params(self.exchange_name, self._default_sub_type)
+
     def fetch_balance(self) -> list[RawBalance]:
+        params = self._fetch_params()
         raw = call_with_retry(
-            self._client.fetch_balance,
+            lambda: self._client.fetch_balance(params),
             label=f"{self.exchange_name}.fetch_balance",
         )
         return self._parse_balance(raw)
@@ -94,11 +123,99 @@ class CcxtExchangeClient(ExchangeClient):
         if not getattr(self._client, "has", {}).get("fetchPositions"):
             return []
 
-        raw = call_with_retry(
-            lambda: self._client.fetch_positions(),
-            label=f"{self.exchange_name}.fetch_positions",
-        )
+        if self.exchange_name == "bitget" and self._default_sub_type == "inverse":
+            raw = self._fetch_bitget_coin_futures_positions()
+        else:
+            params = self._fetch_params()
+            raw = call_with_retry(
+                lambda: self._client.fetch_positions(params=params),
+                label=f"{self.exchange_name}.fetch_positions",
+            )
         return self._parse_positions(raw or [])
+
+    def _discover_bitget_coin_margin_coins(self) -> list[str]:
+        """List margin coins for Bitget COIN-FUTURES (inverse) wallets."""
+
+        try:
+            response = call_with_retry(
+                lambda: self._client.privateMixGetV2MixAccountAccounts(
+                    {"productType": _BITGET_INVERSE_PRODUCT}
+                ),
+                label=f"{self.exchange_name}.mix_accounts[COIN-FUTURES]",
+            )
+        except Exception as exc:
+            _logger.warning("bitget COIN-FUTURES account list failed: %s", exc)
+            return list(_BITGET_INVERSE_MARGIN_FALLBACK)
+
+        data = response.get("data") if isinstance(response, dict) else None
+        if not isinstance(data, list):
+            return list(_BITGET_INVERSE_MARGIN_FALLBACK)
+
+        coins: list[str] = []
+        for entry in data:
+            if not isinstance(entry, dict):
+                continue
+            coin = entry.get("marginCoin")
+            if coin:
+                coins.append(str(coin).upper())
+
+        if not coins:
+            return list(_BITGET_INVERSE_MARGIN_FALLBACK)
+        return coins
+
+    def _fetch_bitget_coin_futures_positions(self) -> list[dict[str, Any]]:
+        """Fetch inverse positions per margin coin.
+
+        CCXT defaults ``marginCoin`` to ``USDT`` for ``fetch_positions``, which
+        Bitget rejects for ``COIN-FUTURES`` (error 40778). Query each wallet
+        coin returned by the mix account list API instead.
+        """
+
+        margin_coins = self._discover_bitget_coin_margin_coins()
+
+        # Merge coins that still have wallet equity (covers edge cases).
+        try:
+            balance = call_with_retry(
+                lambda: self._client.fetch_balance(
+                    {"productType": _BITGET_INVERSE_PRODUCT}
+                ),
+                label=f"{self.exchange_name}.fetch_balance[COIN-FUTURES]",
+            )
+            for asset, amount in (balance.get("total") or {}).items():
+                if float(amount or 0) > 0:
+                    upper = str(asset).upper()
+                    if upper not in margin_coins:
+                        margin_coins.append(upper)
+        except Exception as exc:
+            _logger.debug("bitget COIN-FUTURES balance probe skipped: %s", exc)
+
+        all_positions: list[dict[str, Any]] = []
+        seen_keys: set[tuple[str, str]] = set()
+
+        for coin in margin_coins:
+            pos_params = {
+                "productType": _BITGET_INVERSE_PRODUCT,
+                "marginCoin": coin,
+            }
+            try:
+                batch = call_with_retry(
+                    lambda p=pos_params: self._client.fetch_positions(params=p),
+                    label=f"{self.exchange_name}.fetch_positions[{coin}]",
+                )
+            except Exception as exc:
+                _logger.debug("bitget positions marginCoin=%s skipped: %s", coin, exc)
+                continue
+
+            for pos in batch or []:
+                symbol = str(pos.get("symbol") or pos.get("info", {}).get("symbol") or "")
+                side = str(pos.get("side") or "net").lower()
+                key = (symbol, side)
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                all_positions.append(pos)
+
+        return all_positions
 
     def fetch_markets(self) -> list[RawMarket]:
         markets = call_with_retry(
