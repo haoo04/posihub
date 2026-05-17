@@ -39,6 +39,13 @@ SEEDS: list[tuple[str, str, str, str, InstrumentType]] = [
     ("bybit", "BTC/USDT", "BTC", "USDT", InstrumentType.SPOT),
     ("bybit", "BTC/USDT:USDT", "BTC", "USDT", InstrumentType.PERP),
     ("bybit", "BTC/USD:BTC", "BTC", "USD", InstrumentType.PERP),
+    ("bitget", "BTC/USDT:USDT", "BTC", "USDT", InstrumentType.PERP),
+    ("bitget", "ETH/USDT:USDT", "ETH", "USDT", InstrumentType.PERP),
+    ("bitget", "BTC/USD:BTC", "BTC", "USD", InstrumentType.PERP),
+    ("bitget", "ETH/USD:ETH", "ETH", "USD", InstrumentType.PERP),
+
+    # Stock and ETF
+    ("bitget", "SPY/USDT:USDT", "SPY", "USDT", InstrumentType.PERP),
 ]
 
 

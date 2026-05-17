@@ -14,6 +14,30 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
+BACKEND_ROOT = PROJECT_ROOT / "backend"
+
+
+def _default_database_url() -> str:
+    path = (BACKEND_ROOT / "posihub.db").resolve()
+    return f"sqlite:///{path.as_posix()}"
+
+
+def _resolve_sqlite_database_url(url: str) -> str:
+    """Resolve relative SQLite paths against ``backend/``, not the shell cwd."""
+
+    if not url.startswith("sqlite") or ":///" not in url:
+        return url
+
+    scheme, path = url.split(":///", 1)
+    if path == ":memory:" or path.startswith(":memory:"):
+        return url
+
+    db_path = Path(path)
+    if db_path.is_absolute():
+        return url
+
+    resolved = (BACKEND_ROOT / db_path).resolve()
+    return f"{scheme}:///{resolved.as_posix()}"
 
 
 class Settings(BaseSettings):
@@ -32,7 +56,7 @@ class Settings(BaseSettings):
     app_debug: bool = Field(default=True)
     app_timezone: str = Field(default="Asia/Shanghai")
 
-    database_url: str = Field(default="sqlite:///./posihub.db")
+    database_url: str = Field(default_factory=_default_database_url)
 
     posihub_encryption_key: str | None = Field(default=None)
 
@@ -46,6 +70,11 @@ class Settings(BaseSettings):
 
     # Feature flags
     enable_position_order_edit: bool = Field(default=True)
+
+    @field_validator("database_url", mode="after")
+    @classmethod
+    def _normalize_database_url(cls, value: str) -> str:
+        return _resolve_sqlite_database_url(value)
 
     @field_validator("daily_snapshot_time")
     @classmethod

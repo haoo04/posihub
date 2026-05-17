@@ -7,6 +7,7 @@ to handle plaintext API credentials directly.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Optional
 
 from sqlmodel import Session, select
@@ -17,7 +18,7 @@ from .base import ExchangeClient
 from .ccxt_client import CcxtExchangeClient
 
 
-_DEFAULT_TYPE_MAP = {
+_DEFAULT_TYPE_MAP: dict[AccountType, Optional[str]] = {
     AccountType.SPOT: "spot",
     AccountType.USDT_PERP: "swap",
     AccountType.COIN_PERP: "swap",
@@ -26,9 +27,30 @@ _DEFAULT_TYPE_MAP = {
     AccountType.SIMULATED: None,
 }
 
+# CCXT ``defaultSubType``: linear = USDT-margined swap, inverse = coin-margined.
+_DEFAULT_SUBTYPE_MAP: dict[AccountType, Optional[str]] = {
+    AccountType.USDT_PERP: "linear",
+    AccountType.COIN_PERP: "inverse",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class CcxtAccountOptions:
+    default_type: Optional[str] = None
+    default_sub_type: Optional[str] = None
+
+
+def resolve_ccxt_options(account: Account) -> CcxtAccountOptions:
+    return CcxtAccountOptions(
+        default_type=_DEFAULT_TYPE_MAP.get(account.account_type),
+        default_sub_type=_DEFAULT_SUBTYPE_MAP.get(account.account_type),
+    )
+
 
 def resolve_default_type(account: Account) -> Optional[str]:
-    return _DEFAULT_TYPE_MAP.get(account.account_type)
+    """Return CCXT ``defaultType`` for the account (legacy helper)."""
+
+    return resolve_ccxt_options(account).default_type
 
 
 def build_client_for_account(session: Session, account: Account) -> ExchangeClient:
@@ -45,12 +67,14 @@ def build_client_for_account(session: Session, account: Account) -> ExchangeClie
     api_secret = decrypt_secret(account.api_secret_enc)
     passphrase = decrypt_secret(account.passphrase_enc)
 
+    ccxt_opts = resolve_ccxt_options(account)
     return CcxtExchangeClient(
         exchange_id=exchange.name,
         api_key=api_key,
         api_secret=api_secret,
         passphrase=passphrase,
-        default_type=resolve_default_type(account),
+        default_type=ccxt_opts.default_type,
+        default_sub_type=ccxt_opts.default_sub_type,
     )
 
 
