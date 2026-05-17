@@ -9,14 +9,18 @@ from sqlalchemy import delete
 
 from ..db.models import (
     Account,
-    AccountBalanceCurrent,
     DataSource,
     ManualEntry,
     ManualEntryType,
-    PositionCurrent,
     PositionSnapshotDaily,
 )
 from ..schemas.snapshot import ManualSnapshotCreate, ManualSnapshotResult
+from ..services.normalize.normalizer import (
+    NormalizedBalance,
+    NormalizedPosition,
+    upsert_balances,
+    upsert_positions,
+)
 from ..services.snapshot_service import write_account_snapshot
 from .deps import SessionDep
 
@@ -76,14 +80,11 @@ def create_manual_snapshot(
     # For simulated accounts, also reflect into "current" tables so the UI
     # immediately sees the new balances/positions without waiting for sync.
     if account.is_simulated:
-        session.exec(  # type: ignore[call-arg]
-            delete(AccountBalanceCurrent).where(
-                AccountBalanceCurrent.account_id == payload.account_id
-            )
-        )
-        for b in payload.balances:
-            session.add(
-                AccountBalanceCurrent(
+        upsert_balances(
+            session,
+            payload.account_id,
+            [
+                NormalizedBalance(
                     account_id=payload.account_id,
                     asset=b.asset.upper(),
                     equity=b.equity,
@@ -91,16 +92,14 @@ def create_manual_snapshot(
                     frozen=b.frozen,
                     source=source,
                 )
-            )
-
-        session.exec(  # type: ignore[call-arg]
-            delete(PositionCurrent).where(
-                PositionCurrent.account_id == payload.account_id
-            )
+                for b in payload.balances
+            ],
         )
-        for pos in payload.positions:
-            session.add(
-                PositionCurrent(
+        upsert_positions(
+            session,
+            payload.account_id,
+            [
+                NormalizedPosition(
                     account_id=payload.account_id,
                     canonical_symbol=pos.canonical_symbol,
                     side=pos.side,
@@ -108,9 +107,13 @@ def create_manual_snapshot(
                     entry_price=pos.entry_price,
                     mark_price=pos.mark_price,
                     unrealized_pnl=pos.unrealized_pnl,
+                    leverage=1.0,
+                    margin_mode=None,
                     source=source,
                 )
-            )
+                for pos in payload.positions
+            ],
+        )
 
     # audit trail
     session.add(
