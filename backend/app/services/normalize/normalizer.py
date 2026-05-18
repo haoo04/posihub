@@ -10,13 +10,15 @@ from typing import Optional
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from ...db.models import (
     AccountBalanceCurrent,
     DataSource,
     InstrumentType,
+    PositionCloseExecution,
     PositionCurrent,
+    PositionOrder,
     PositionSide,
 )
 from ..exchange.base import RawBalance, RawPosition
@@ -142,30 +144,84 @@ def normalize_positions(
 # ---------------------------------------------------------------------------
 
 
+def _load_balances_by_asset(
+    session: Session, account_id: int
+) -> dict[str, AccountBalanceCurrent]:
+    rows = session.exec(
+        select(AccountBalanceCurrent).where(
+            AccountBalanceCurrent.account_id == account_id
+        )
+    ).all()
+    return {row.asset: row for row in rows}
+
+
+def _load_positions_by_key(
+    session: Session, account_id: int
+) -> dict[tuple[str, PositionSide], PositionCurrent]:
+    rows = session.exec(
+        select(PositionCurrent).where(PositionCurrent.account_id == account_id)
+    ).all()
+    return {(row.canonical_symbol, row.side): row for row in rows}
+
+
+def _position_has_children(session: Session, position_id: int) -> bool:
+    """True when order-level rows still reference this position."""
+
+    if (
+        session.exec(
+            select(PositionOrder.id)
+            .where(PositionOrder.position_id == position_id)
+            .limit(1)
+        ).first()
+        is not None
+    ):
+        return True
+    return (
+        session.exec(
+            select(PositionCloseExecution.id)
+            .where(PositionCloseExecution.position_id == position_id)
+            .limit(1)
+        ).first()
+        is not None
+    )
+
+
 def upsert_balances(
     session: Session, account_id: int, items: list[NormalizedBalance]
 ) -> int:
-    """Replace current balances for the account; returns number of rows."""
+    """Upsert current balances by ``(account_id, asset)``, preserving row ids."""
 
-    from sqlalchemy import delete
+    existing = _load_balances_by_asset(session, account_id)
+    incoming_assets: set[str] = set()
 
-    session.exec(  # type: ignore[call-arg]
-        delete(AccountBalanceCurrent).where(
-            AccountBalanceCurrent.account_id == account_id
-        )
-    )
     for item in items:
-        session.add(
-            AccountBalanceCurrent(
-                account_id=item.account_id,
-                asset=item.asset,
-                equity=item.equity,
-                available=item.available,
-                frozen=item.frozen,
-                source=item.source,
-                updated_at=item.updated_at,
+        incoming_assets.add(item.asset)
+        row = existing.get(item.asset)
+        if row is None:
+            session.add(
+                AccountBalanceCurrent(
+                    account_id=item.account_id,
+                    asset=item.asset,
+                    equity=item.equity,
+                    available=item.available,
+                    frozen=item.frozen,
+                    source=item.source,
+                    updated_at=item.updated_at,
+                )
             )
-        )
+            continue
+
+        row.equity = item.equity
+        row.available = item.available
+        row.frozen = item.frozen
+        row.source = item.source
+        row.updated_at = item.updated_at
+        session.add(row)
+
+    for asset, row in existing.items():
+        if asset not in incoming_assets:
+            session.delete(row)
+
     return len(items)
 
 
@@ -244,31 +300,66 @@ def merge_positions(
     return merged
 
 
+def _apply_position_fields(row: PositionCurrent, item: NormalizedPosition) -> None:
+    row.qty = item.qty
+    row.entry_price = item.entry_price
+    row.mark_price = item.mark_price
+    row.unrealized_pnl = item.unrealized_pnl
+    row.leverage = item.leverage
+    row.margin_mode = item.margin_mode
+    row.source = item.source
+    row.updated_at = item.updated_at
+
+
 def upsert_positions(
     session: Session, account_id: int, items: list[NormalizedPosition]
 ) -> int:
-    """Replace current positions for the account; returns number of rows."""
+    """Upsert positions by ``(account_id, canonical_symbol, side)``.
 
-    from sqlalchemy import delete
+    Existing ``positions_current.id`` values are preserved so
+    ``position_orders.position_id`` remains valid across syncs. Rows absent
+    from the latest fetch are deleted only when no order-level children exist;
+    otherwise they are zeroed out to keep FK integrity.
+    """
 
-    session.exec(  # type: ignore[call-arg]
-        delete(PositionCurrent).where(PositionCurrent.account_id == account_id)
-    )
     merged = merge_positions(items)
+    existing = _load_positions_by_key(session, account_id)
+    incoming_keys: set[tuple[str, PositionSide]] = set()
+
     for item in merged:
-        session.add(
-            PositionCurrent(
-                account_id=item.account_id,
-                canonical_symbol=item.canonical_symbol,
-                side=item.side,
-                qty=item.qty,
-                entry_price=item.entry_price,
-                mark_price=item.mark_price,
-                unrealized_pnl=item.unrealized_pnl,
-                leverage=item.leverage,
-                margin_mode=item.margin_mode,
-                source=item.source,
-                updated_at=item.updated_at,
+        key = (item.canonical_symbol, item.side)
+        incoming_keys.add(key)
+        row = existing.get(key)
+        if row is None:
+            session.add(
+                PositionCurrent(
+                    account_id=item.account_id,
+                    canonical_symbol=item.canonical_symbol,
+                    side=item.side,
+                    qty=item.qty,
+                    entry_price=item.entry_price,
+                    mark_price=item.mark_price,
+                    unrealized_pnl=item.unrealized_pnl,
+                    leverage=item.leverage,
+                    margin_mode=item.margin_mode,
+                    source=item.source,
+                    updated_at=item.updated_at,
+                )
             )
-        )
+            continue
+
+        _apply_position_fields(row, item)
+        session.add(row)
+
+    for key, row in existing.items():
+        if key in incoming_keys:
+            continue
+        if row.id is not None and _position_has_children(session, row.id):
+            row.qty = 0.0
+            row.unrealized_pnl = 0.0
+            row.updated_at = _utcnow()
+            session.add(row)
+        else:
+            session.delete(row)
+
     return len(merged)
