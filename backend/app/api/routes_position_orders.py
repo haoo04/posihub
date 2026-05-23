@@ -106,6 +106,10 @@ def list_position_orders(
     if position_id is not None:
         query = query.where(PositionOrder.position_id == position_id)
 
+    query = query.order_by(
+        PositionOrder.created_at.asc(), PositionOrder.id.asc()
+    )
+
     orders = list(session.exec(query).all())
     return [PositionOrderRead.model_validate(o) for o in orders]
 
@@ -247,7 +251,9 @@ def list_position_orders_with_pnl(
 
     orders = list(
         session.exec(
-            select(PositionOrder).where(PositionOrder.position_id == position_id)
+            select(PositionOrder)
+            .where(PositionOrder.position_id == position_id)
+            .order_by(PositionOrder.created_at.asc(), PositionOrder.id.asc())
         ).all()
     )
 
