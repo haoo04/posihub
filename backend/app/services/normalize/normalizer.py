@@ -89,6 +89,7 @@ def normalize_positions(
     raws: list[RawPosition],
     mapper: SymbolMapper,
     source: DataSource = DataSource.API,
+    instrument_hint: str = "perp",
     unmapped: Optional[list[str]] = None,
 ) -> list[NormalizedPosition]:
     """Map raw positions to :class:`NormalizedPosition`.
@@ -106,17 +107,22 @@ def normalize_positions(
         canonical = mapper.resolve(
             exchange_name,
             raw.raw_symbol,
-            instrument_hint="perp",
+            instrument_hint=instrument_hint,
             contract_size=raw.contract_size,
         )
         if canonical is None:
             if unmapped is not None:
                 unmapped.append(raw.raw_symbol)
+            fallback_inst = InstrumentType.PERP
+            if instrument_hint == "spot":
+                fallback_inst = InstrumentType.SPOT
+            elif instrument_hint == "futures":
+                fallback_inst = InstrumentType.FUTURES
             canonical = CanonicalSymbol(
                 canonical=raw.raw_symbol,
                 base_asset="",
                 quote_asset="",
-                instrument_type=InstrumentType.PERP,
+                instrument_type=fallback_inst,
                 contract_size=raw.contract_size,
             )
 

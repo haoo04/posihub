@@ -71,6 +71,8 @@ class Settings(BaseSettings):
     # Feature flags
     enable_position_order_edit: bool = Field(default=True)
 
+    spot_dust_threshold_usd: float = Field(default=0.01, ge=0.0)
+
     @field_validator("database_url", mode="after")
     @classmethod
     def _normalize_database_url(cls, value: str) -> str:

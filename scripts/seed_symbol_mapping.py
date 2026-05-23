@@ -26,24 +26,60 @@ from app.services.normalize.symbol_mapper import (  # noqa: E402
 )
 
 
+# CCXT-style USDT spot + linear perp for major alts (binance / bybit / bitget / okx).
+_USDT_MARGIN_BASES = (
+    "BTC",
+    "ETH",
+    "BNB",
+    "SOL",
+    "XRP",
+    "DOGE",
+    "ADA",
+    "AVAX",
+    "LINK",
+    "DOT",
+    "LTC",
+    "TRX",
+    "SHIB",
+    "UNI",
+    "ATOM",
+    "NEAR",
+    "APT",
+    "ARB",
+    "OP",
+    "SUI",
+    "BCH",
+    "FIL",
+    "TON",
+    "PEPE",
+    "WLD",
+    "INJ",
+    "TIA",
+    "SEI",
+)
+
+
+def _usdt_margin_seeds() -> list[tuple[str, str, str, str, InstrumentType]]:
+    rows: list[tuple[str, str, str, str, InstrumentType]] = []
+    for base in _USDT_MARGIN_BASES:
+        for exchange in ("binance", "bybit", "bitget"):
+            rows.append((exchange, f"{base}/USDT", base, "USDT", InstrumentType.SPOT))
+            rows.append(
+                (exchange, f"{base}/USDT:USDT", base, "USDT", InstrumentType.PERP)
+            )
+        rows.append(("okx", f"{base}/USDT", base, "USDT", InstrumentType.SPOT))
+        rows.append(("okx", f"{base}-USDT-SWAP", base, "USDT", InstrumentType.PERP))
+    return rows
+
+
 SEEDS: list[tuple[str, str, str, str, InstrumentType]] = [
-    # exchange, raw_symbol, base, quote, type
-    ("binance", "BTC/USDT", "BTC", "USDT", InstrumentType.SPOT),
-    ("binance", "ETH/USDT", "ETH", "USDT", InstrumentType.SPOT),
-    ("binance", "BTC/USDT:USDT", "BTC", "USDT", InstrumentType.PERP),
-    ("binance", "ETH/USDT:USDT", "ETH", "USDT", InstrumentType.PERP),
+    *_usdt_margin_seeds(),
+    # Coin-margined (inverse) perps
     ("binance", "BTC/USD:BTC", "BTC", "USD", InstrumentType.PERP),
-    ("okx", "BTC/USDT", "BTC", "USDT", InstrumentType.SPOT),
-    ("okx", "BTC-USDT-SWAP", "BTC", "USDT", InstrumentType.PERP),
     ("okx", "BTC-USD-SWAP", "BTC", "USD", InstrumentType.PERP),
-    ("bybit", "BTC/USDT", "BTC", "USDT", InstrumentType.SPOT),
-    ("bybit", "BTC/USDT:USDT", "BTC", "USDT", InstrumentType.PERP),
     ("bybit", "BTC/USD:BTC", "BTC", "USD", InstrumentType.PERP),
-    ("bitget", "BTC/USDT:USDT", "BTC", "USDT", InstrumentType.PERP),
-    ("bitget", "ETH/USDT:USDT", "ETH", "USDT", InstrumentType.PERP),
     ("bitget", "BTC/USD:BTC", "BTC", "USD", InstrumentType.PERP),
     ("bitget", "ETH/USD:ETH", "ETH", "USD", InstrumentType.PERP),
-
     # Stock and ETF
     ("bitget", "SPY/USDT:USDT", "SPY", "USDT", InstrumentType.PERP),
 ]

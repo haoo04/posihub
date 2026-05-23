@@ -27,6 +27,8 @@ class PositionRead(APIModel):
     source: DataSource
     account_type: Optional[str] = None
     pnl_asset: Optional[str] = None
+    instrument_type: Optional[str] = None
+    has_cost_basis: bool = True
 
 
 class PositionMerged(APIModel):
@@ -39,6 +41,8 @@ class PositionMerged(APIModel):
     realized_pnl: float = 0.0
     notional: float
     accounts: list[int] = Field(default_factory=list)
+    instrument_type: Optional[str] = None
 
 
 PositionView = Literal["split", "merged"]
+PositionMarket = Literal["derivatives", "spot"]

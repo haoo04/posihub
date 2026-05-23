@@ -66,6 +66,11 @@ class ExchangeClient(ABC):
     def fetch_markets(self) -> list[RawMarket]:
         """Return market metadata used for symbol mapping."""
 
+    def fetch_last_prices(self, symbols: list[str]) -> dict[str, float]:
+        """Return last/mark prices for CCXT-style symbols (e.g. ``BTC/USDT``)."""
+
+        return {}
+
     def fetch_all(self) -> FetchResult:
         """Convenience helper combining balance + positions."""
 

@@ -165,6 +165,36 @@ def _refresh_position_fields_from_orders(
     position.updated_at = now
 
 
+def refresh_account_positions_from_orders(
+    session: Session,
+    account_id: int,
+    *,
+    now: datetime | None = None,
+) -> None:
+    """Reconcile parent positions with order-level legs after a sync."""
+
+    ts = now or _utcnow()
+    positions = list(
+        session.exec(
+            select(PositionCurrent).where(PositionCurrent.account_id == account_id)
+        ).all()
+    )
+    for position in positions:
+        if position.id is None:
+            continue
+        has_orders = (
+            session.exec(
+                select(PositionOrder.id)
+                .where(PositionOrder.position_id == position.id)
+                .limit(1)
+            ).first()
+            is not None
+        )
+        if has_orders:
+            _refresh_position_fields_from_orders(session, position, now=ts)
+            session.add(position)
+
+
 def fifo_close_position(
     session: Session,
     *,

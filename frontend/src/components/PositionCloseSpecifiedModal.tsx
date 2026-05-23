@@ -21,6 +21,7 @@ interface PositionCloseSpecifiedModalProps {
   open: boolean;
   positionId: number;
   defaultClosePrice?: number;
+  isSpot?: boolean;
   onCancel: () => void;
   onSuccess: () => void;
 }
@@ -29,6 +30,7 @@ export function PositionCloseSpecifiedModal({
   open,
   positionId,
   defaultClosePrice,
+  isSpot = false,
   onCancel,
   onSuccess,
 }: PositionCloseSpecifiedModalProps) {
@@ -81,7 +83,7 @@ export function PositionCloseSpecifiedModal({
       ),
     },
     {
-      title: "开仓价",
+      title: isSpot ? "买入价" : "开仓价",
       dataIndex: "entry_price",
       width: 120,
       render: (p: number) => (
@@ -89,7 +91,7 @@ export function PositionCloseSpecifiedModal({
       ),
     },
     {
-      title: "本次平仓",
+      title: isSpot ? "本次卖出" : "本次平仓",
       key: "allocate",
       width: 160,
       render: (_, record) => (
@@ -143,12 +145,16 @@ export function PositionCloseSpecifiedModal({
         );
 
       if (legs.length === 0) {
-        message.warning("请至少在一个订单上填写大于 0 的平仓数量");
+        message.warning(
+          isSpot
+            ? "请至少在一个批次上填写大于 0 的卖出数量"
+            : "请至少在一个订单上填写大于 0 的平仓数量"
+        );
         return;
       }
 
       if (allocatedTotal <= QTY_EPS) {
-        message.warning("平仓数量总和必须大于 0");
+        message.warning(isSpot ? "卖出数量总和必须大于 0" : "平仓数量总和必须大于 0");
         return;
       }
 
@@ -162,7 +168,7 @@ export function PositionCloseSpecifiedModal({
         },
       });
       message.success(
-        `平仓成功，已实现盈亏 ${result.realized_pnl.toFixed(2)}`
+        `${isSpot ? "卖出" : "平仓"}成功，已实现盈亏 ${result.realized_pnl.toFixed(2)}`
       );
       onSuccess();
     } catch (err) {
@@ -175,19 +181,19 @@ export function PositionCloseSpecifiedModal({
       }
       const detail =
         (err as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail ?? "平仓失败";
+          ?.detail ?? (isSpot ? "卖出失败" : "平仓失败");
       message.error(detail);
     }
   };
 
   return (
     <Modal
-      title="指定配对平仓"
+      title={isSpot ? "指定批次卖出" : "指定配对平仓"}
       open={open}
       onOk={handleSubmit}
       onCancel={onCancel}
       confirmLoading={closeMutation.isPending}
-      okText="确认平仓"
+      okText={isSpot ? "确认卖出" : "确认平仓"}
       cancelText="取消"
       width={720}
     >
@@ -195,12 +201,16 @@ export function PositionCloseSpecifiedModal({
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="自行选择在各开仓订单上分配的数量；匹配顺序与表格行顺序一致。"
+        message={
+          isSpot
+            ? "自行选择在各买入批次上分配的数量；匹配顺序与表格行顺序一致。"
+            : "自行选择在各开仓订单上分配的数量；匹配顺序与表格行顺序一致。"
+        }
         description={
           <span>
             当前分配合计：
             <span className="posi-numeric">{fmtQty(allocatedTotal)}</span>
-            （将作为本次平仓总量提交）
+            （将作为本次{isSpot ? "卖出" : "平仓"}总量提交）
           </span>
         }
       />
@@ -208,9 +218,9 @@ export function PositionCloseSpecifiedModal({
       <Form form={form} layout="vertical">
         <Form.Item
           name="close_price"
-          label="平仓价"
+          label={isSpot ? "卖出价" : "平仓价"}
           rules={[
-            { required: true, message: "请输入平仓价" },
+            { required: true, message: isSpot ? "请输入卖出价" : "请输入平仓价" },
             { type: "number", min: 0.00000001, message: "价格必须大于 0" },
           ]}
         >
@@ -232,7 +242,7 @@ export function PositionCloseSpecifiedModal({
         columns={columns}
         dataSource={openOrders}
         pagination={false}
-        locale={{ emptyText: "没有可分配的剩余持仓订单" }}
+        locale={{ emptyText: isSpot ? "没有可分配的剩余买入批次" : "没有可分配的剩余持仓订单" }}
         scroll={{ x: 520 }}
       />
 

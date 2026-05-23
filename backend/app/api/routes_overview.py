@@ -17,6 +17,7 @@ from ..db.models import (
     PositionCurrent,
 )
 from ..schemas.overview import OverviewResponse
+from ..services.pnl_calculator import position_unrealized_pnl_usdt
 from .deps import SessionDep
 
 router = APIRouter(prefix="/api/v1/overview", tags=["overview"])
@@ -39,7 +40,21 @@ def get_overview(session: SessionDep) -> OverviewResponse:
         + equity_by_asset.get("USD", 0.0)
     )
 
-    total_upnl = sum(float(p.unrealized_pnl or 0.0) for p in positions)
+    total_upnl = 0.0
+    active_positions = 0
+    account_by_id = {int(a.id): a for a in accounts if a.id is not None}
+    for p in positions:
+        if float(p.qty or 0.0) <= 0:
+            continue
+        active_positions += 1
+        account = account_by_id.get(int(p.account_id))
+        total_upnl += position_unrealized_pnl_usdt(
+            account_type=account.account_type if account else None,
+            side=p.side,
+            unrealized_pnl=float(p.unrealized_pnl or 0.0),
+            mark_price=float(p.mark_price or 0.0),
+            has_position_orders=False,
+        )
     last_sync_at: Optional[datetime] = max(
         (a.last_sync_at for a in accounts if a.last_sync_at is not None), default=None
     )
@@ -51,7 +66,7 @@ def get_overview(session: SessionDep) -> OverviewResponse:
     return OverviewResponse(
         total_equity=total_equity,
         total_unrealized_pnl=total_upnl,
-        total_positions=len(positions),
+        total_positions=active_positions,
         total_accounts=len(accounts),
         last_snapshot_at=last_snapshot_at_dt,
         last_sync_at=last_sync_at,

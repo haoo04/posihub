@@ -26,6 +26,7 @@ import type {
   PositionOrderWithPnL,
   PositionSnapshot,
   PositionSplit,
+  PositionMarket,
   SpecifiedCloseRequest,
   SymbolMapping,
 } from "./types";
@@ -34,7 +35,8 @@ export const queryKeys = {
   overview: ["overview"] as const,
   exchanges: ["exchanges"] as const,
   accounts: ["accounts"] as const,
-  positions: (view: "split" | "merged") => ["positions", view] as const,
+  positions: (view: "split" | "merged", market: PositionMarket = "derivatives") =>
+    ["positions", view, market] as const,
   positionOrders: (positionId?: number) =>
     positionId ? ["position-orders", positionId] : ["position-orders"] as const,
   positionMatches: (positionId: number) =>
@@ -142,13 +144,16 @@ export function useSyncAccount() {
   });
 }
 
-export function usePositions<V extends "split" | "merged">(view: V) {
+export function usePositions<V extends "split" | "merged">(
+  view: V,
+  market: PositionMarket = "derivatives"
+) {
   return useQuery({
-    queryKey: queryKeys.positions(view),
+    queryKey: queryKeys.positions(view, market),
     queryFn: async () => {
       type Result = V extends "split" ? PositionSplit[] : PositionMerged[];
       const resp = await http.get<Result>(
-        `/api/v1/positions?view=${view}`
+        `/api/v1/positions?view=${view}&market=${market}`
       );
       return resp.data;
     },

@@ -36,6 +36,7 @@ interface PositionOrdersTableProps {
   positionId: number;
   isCoinMargined?: boolean;
   pnlAsset?: string | null;
+  isSpot?: boolean;
 }
 
 function renderPriceCell(record: PositionOrderWithPnL) {
@@ -94,6 +95,7 @@ export function PositionOrdersTable({
   positionId,
   isCoinMargined = false,
   pnlAsset = null,
+  isSpot = false,
 }: PositionOrdersTableProps) {
   const { isMobile } = useBreakpoint();
   const { data: orders, isLoading, error } = usePositionOrders(positionId);
@@ -148,7 +150,7 @@ export function PositionOrdersTable({
       render: (v: string) => statusTag(v),
     },
     {
-      title: "开仓数量",
+      title: isSpot ? "买入数量" : "开仓数量",
       dataIndex: "open_qty",
       align: "right" as const,
       width: 100,
@@ -162,7 +164,7 @@ export function PositionOrdersTable({
       render: (v: number) => <span className="posi-numeric">{fmtQty(v)}</span>,
     },
     {
-      title: "开仓价",
+      title: isSpot ? "买入价" : "开仓价",
       dataIndex: "entry_price",
       align: "right" as const,
       width: 120,
@@ -190,7 +192,7 @@ export function PositionOrdersTable({
               nativeValue={record.unrealized_pnl_native}
               usdtValue={upnl}
               asset={record.pnl_asset ?? pnlAsset}
-              coinMargined={isCoinMargined}
+              coinMargined={isCoinMargined && !isSpot}
             />
             <Text
               type="secondary"
@@ -214,54 +216,60 @@ export function PositionOrdersTable({
           nativeValue={record.realized_pnl_native}
           usdtValue={record.realized_pnl_usdt ?? record.realized_pnl}
           asset={record.pnl_asset ?? pnlAsset}
-          coinMargined={isCoinMargined}
+          coinMargined={isCoinMargined && !isSpot}
         />
       ),
     },
-    {
-      title: "杠杆",
-      dataIndex: "leverage",
-      align: "right" as const,
-      width: 80,
-      render: (v: number) => <span className="posi-numeric">{v}x</span>,
-    },
-    {
-      title: "保证金",
-      dataIndex: "margin",
-      align: "right" as const,
-      width: 120,
-      render: (v: number | null) => (
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          <OrderMarginDisplay
-            value={v}
-            asset={pnlAsset}
-            coinMargined={isCoinMargined}
-          />
-        </Text>
-      ),
-    },
-    {
-      title: "MMR",
-      dataIndex: "mmr",
-      align: "right" as const,
-      width: 80,
-      render: (v: number | null) => (
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {v !== null ? `${(v * 100).toFixed(2)}%` : "—"}
-        </Text>
-      ),
-    },
-    {
-      title: "强平价",
-      dataIndex: "liquidation_price",
-      align: "right" as const,
-      width: 120,
-      render: (v: number | null) => (
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {v !== null ? fmtPrice(v) : "—"}
-        </Text>
-      ),
-    },
+    ...(!isSpot
+      ? [
+          {
+            title: "杠杆",
+            dataIndex: "leverage",
+            align: "right" as const,
+            width: 80,
+            render: (v: number) => (
+              <span className="posi-numeric">{v}x</span>
+            ),
+          },
+          {
+            title: "保证金",
+            dataIndex: "margin",
+            align: "right" as const,
+            width: 120,
+            render: (v: number | null) => (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                <OrderMarginDisplay
+                  value={v}
+                  asset={pnlAsset}
+                  coinMargined={isCoinMargined}
+                />
+              </Text>
+            ),
+          },
+          {
+            title: "MMR",
+            dataIndex: "mmr",
+            align: "right" as const,
+            width: 80,
+            render: (v: number | null) => (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {v !== null ? `${(v * 100).toFixed(2)}%` : "—"}
+              </Text>
+            ),
+          },
+          {
+            title: "强平价",
+            dataIndex: "liquidation_price",
+            align: "right" as const,
+            width: 120,
+            render: (v: number | null) => (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {v !== null ? fmtPrice(v) : "—"}
+              </Text>
+            ),
+          },
+        ]
+      : []),
     {
       title: "创建时间",
       dataIndex: "created_at",
@@ -335,7 +343,7 @@ export function PositionOrdersTable({
         <Row gutter={[8, 8]}>
           <Col span={12}>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              开仓数量
+              {isSpot ? "买入数量" : "开仓数量"}
             </Text>
             <div>
               <span className="posi-numeric">{fmtQty(order.open_qty)}</span>
@@ -351,7 +359,7 @@ export function PositionOrdersTable({
           </Col>
           <Col span={12}>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              开仓价
+              {isSpot ? "买入价" : "开仓价"}
             </Text>
             <div>
               <span className="posi-numeric">{fmtPrice(order.entry_price)}</span>
@@ -376,7 +384,7 @@ export function PositionOrdersTable({
                 nativeValue={order.unrealized_pnl_native}
                 usdtValue={order.unrealized_pnl_usdt ?? order.unrealized_pnl}
                 asset={order.pnl_asset ?? pnlAsset}
-                coinMargined={isCoinMargined}
+                coinMargined={isCoinMargined && !isSpot}
               />
               <Text
                 type="secondary"
@@ -403,10 +411,12 @@ export function PositionOrdersTable({
                 nativeValue={order.realized_pnl_native}
                 usdtValue={order.realized_pnl_usdt ?? order.realized_pnl}
                 asset={order.pnl_asset ?? pnlAsset}
-                coinMargined={isCoinMargined}
+                coinMargined={isCoinMargined && !isSpot}
               />
             </div>
           </Col>
+          {!isSpot && (
+            <>
           <Col span={12}>
             <Text type="secondary" style={{ fontSize: 12 }}>
               杠杆
@@ -423,7 +433,7 @@ export function PositionOrdersTable({
               <OrderMarginDisplay
                 value={order.margin}
                 asset={pnlAsset}
-                coinMargined={isCoinMargined}
+                coinMargined={isCoinMargined && !isSpot}
               />
             </div>
           </Col>
@@ -449,6 +459,8 @@ export function PositionOrdersTable({
               </Text>
             </div>
           </Col>
+            </>
+          )}
           <Col span={24}>
             <Text type="secondary" style={{ fontSize: 12 }}>
               创建
@@ -493,7 +505,7 @@ export function PositionOrdersTable({
           gap: 8,
         }}
       >
-        <Text strong>订单明细</Text>
+        <Text strong>{isSpot ? "买入批次" : "订单明细"}</Text>
         <Space size="small" wrap>
           <Button
             size="small"
@@ -501,7 +513,7 @@ export function PositionOrdersTable({
             onClick={() => setIsCloseModalOpen(true)}
             disabled={!hasOpenQty}
           >
-            FIFO 平仓
+            {isSpot ? "FIFO 卖出" : "FIFO 平仓"}
           </Button>
           <Button
             size="small"
@@ -509,7 +521,7 @@ export function PositionOrdersTable({
             onClick={() => setIsSpecifiedCloseModalOpen(true)}
             disabled={!hasOpenQty}
           >
-            指定配对
+            {isSpot ? "指定卖出" : "指定配对"}
           </Button>
           <Button
             type="primary"
@@ -517,7 +529,7 @@ export function PositionOrdersTable({
             icon={<PlusOutlined />}
             onClick={() => setIsCreateModalOpen(true)}
           >
-            添加订单
+            {isSpot ? "添加批次" : "添加订单"}
           </Button>
         </Space>
       </div>
@@ -549,6 +561,7 @@ export function PositionOrdersTable({
         open={isCreateModalOpen}
         positionId={positionId}
         marginAsset={isCoinMargined ? pnlAsset : null}
+        isSpot={isSpot}
         onCancel={() => setIsCreateModalOpen(false)}
         onSuccess={() => setIsCreateModalOpen(false)}
       />
@@ -558,6 +571,7 @@ export function PositionOrdersTable({
         positionId={positionId}
         order={editingOrder || undefined}
         marginAsset={isCoinMargined ? pnlAsset : null}
+        isSpot={isSpot}
         onCancel={() => setEditingOrder(null)}
         onSuccess={() => setEditingOrder(null)}
       />
@@ -566,6 +580,7 @@ export function PositionOrdersTable({
         open={isCloseModalOpen}
         positionId={positionId}
         defaultClosePrice={defaultClosePrice}
+        isSpot={isSpot}
         onCancel={() => setIsCloseModalOpen(false)}
         onSuccess={() => setIsCloseModalOpen(false)}
       />
@@ -574,6 +589,7 @@ export function PositionOrdersTable({
         open={isSpecifiedCloseModalOpen}
         positionId={positionId}
         defaultClosePrice={defaultClosePrice}
+        isSpot={isSpot}
         onCancel={() => setIsSpecifiedCloseModalOpen(false)}
         onSuccess={() => setIsSpecifiedCloseModalOpen(false)}
       />

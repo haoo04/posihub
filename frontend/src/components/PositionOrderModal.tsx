@@ -16,6 +16,7 @@ interface PositionOrderModalProps {
   positionId: number;
   order?: PositionOrderWithPnL;
   marginAsset?: string | null;
+  isSpot?: boolean;
   onCancel: () => void;
   onSuccess: () => void;
 }
@@ -25,6 +26,7 @@ export function PositionOrderModal({
   positionId,
   order,
   marginAsset = null,
+  isSpot = false,
   onCancel,
   onSuccess,
 }: PositionOrderModalProps) {
@@ -102,7 +104,7 @@ export function PositionOrderModal({
 
   return (
     <Modal
-      title={isEdit ? "编辑订单" : "添加订单"}
+      title={isEdit ? (isSpot ? "编辑批次" : "编辑订单") : isSpot ? "添加买入批次" : "添加订单"}
       open={open}
       onOk={handleSubmit}
       onCancel={onCancel}
@@ -130,7 +132,7 @@ export function PositionOrderModal({
 
         <Form.Item
           name="open_qty"
-          label="开仓数量"
+          label={isSpot ? "买入数量" : "开仓数量"}
           rules={[
             { required: true, message: "请输入开仓数量" },
             { type: "number", min: 0.00001, message: "数量必须大于0" },
@@ -164,7 +166,7 @@ export function PositionOrderModal({
 
         <Form.Item
           name="entry_price"
-          label="开仓价"
+          label={isSpot ? "买入价" : "开仓价"}
           rules={[
             { required: true, message: "请输入开仓价" },
             { type: "number", min: 0.00001, message: "价格必须大于0" },
@@ -178,6 +180,8 @@ export function PositionOrderModal({
           />
         </Form.Item>
 
+        {!isSpot && (
+          <>
         <Form.Item
           name="leverage"
           label="杠杆"
@@ -239,6 +243,8 @@ export function PositionOrderModal({
             min={0}
           />
         </Form.Item>
+          </>
+        )}
       </Form>
     </Modal>
   );
