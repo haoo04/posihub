@@ -82,6 +82,8 @@ export interface PositionSplit {
   margin_mode: string | null;
   updated_at: string;
   source: DataSource;
+  account_type?: AccountType | null;
+  pnl_asset?: string | null;
 }
 
 export interface PositionMerged {
@@ -212,6 +214,12 @@ export interface PositionOrderWithPnL extends PositionOrderRead {
   unrealized_pnl_pct: number;
   mark_price: number;
   realized_pnl: number;
+  close_price?: number | null;
+  pnl_asset?: string | null;
+  unrealized_pnl_native?: number | null;
+  unrealized_pnl_usdt?: number | null;
+  realized_pnl_native?: number | null;
+  realized_pnl_usdt?: number | null;
 }
 
 export interface PositionOrderUpdate {

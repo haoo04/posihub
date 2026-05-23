@@ -41,3 +41,27 @@ def realized_pnl_totals_by_open_order_id(
         .group_by(PositionOrderMatch.open_order_id)
     ).all()
     return {int(oid): float(total or 0.0) for oid, total in rows}
+
+
+def close_price_by_open_order_id(
+    session: Session, order_ids: list[int]
+) -> dict[int, float]:
+    """Weighted average ``close_price`` per ``open_order_id`` from matches."""
+
+    if not order_ids:
+        return {}
+    rows = session.exec(
+        select(
+            PositionOrderMatch.open_order_id,
+            func.sum(PositionOrderMatch.close_price * PositionOrderMatch.matched_qty),
+            func.sum(PositionOrderMatch.matched_qty),
+        )
+        .where(PositionOrderMatch.open_order_id.in_(order_ids))
+        .group_by(PositionOrderMatch.open_order_id)
+    ).all()
+    out: dict[int, float] = {}
+    for oid, px_qty, qty in rows:
+        total_qty = float(qty or 0.0)
+        if oid is not None and total_qty > 0:
+            out[int(oid)] = float(px_qty or 0.0) / total_qty
+    return out

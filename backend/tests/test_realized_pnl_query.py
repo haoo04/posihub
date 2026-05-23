@@ -20,6 +20,7 @@ from app.db.models import (
 )
 from app.services.position_order_close import fifo_close_position
 from app.services.realized_pnl_query import (
+    close_price_by_open_order_id,
     realized_pnl_totals_by_open_order_id,
     realized_pnl_totals_by_position_id,
 )
@@ -133,3 +134,80 @@ def test_positions_split_and_order_list_expose_realized_pnl(
     ohit = next(x for x in orders if x["id"] == oid)
     assert ohit["realized_pnl"] == pytest.approx((48_000.0 - 50_000.0) * 0.25)
     assert ohit["remaining_qty"] == pytest.approx(0.75)
+    assert ohit["close_price"] == pytest.approx(48_000.0)
+
+
+def test_close_price_weighted_average(in_memory_session: Session) -> None:
+    position, order = _bootstrap_long_position(in_memory_session)
+    fifo_close_position(
+        in_memory_session,
+        position_id=position.id,
+        close_qty=0.4,
+        close_price=52_000.0,
+    )
+    fifo_close_position(
+        in_memory_session,
+        position_id=position.id,
+        close_qty=0.6,
+        close_price=53_000.0,
+    )
+    in_memory_session.commit()
+
+    cp = close_price_by_open_order_id(in_memory_session, [int(order.id)])
+    expected = (52_000.0 * 0.4 + 53_000.0 * 0.6) / 1.0
+    assert cp[int(order.id)] == pytest.approx(expected)
+
+
+def test_coin_perp_order_pnl_native_fields(
+    in_memory_session: Session,
+    client_overridden_session: TestClient,
+) -> None:
+    exchange = Exchange(name="coin-exch")
+    in_memory_session.add(exchange)
+    in_memory_session.flush()
+
+    account = Account(
+        exchange_id=exchange.id,
+        account_name="coin-acct",
+        account_type=AccountType.COIN_PERP,
+        is_simulated=True,
+    )
+    in_memory_session.add(account)
+    in_memory_session.flush()
+
+    position = PositionCurrent(
+        account_id=account.id,
+        canonical_symbol="BTC-USD-PERP",
+        side=PositionSide.LONG,
+        qty=1.0,
+        entry_price=50_000.0,
+        mark_price=52_000.0,
+        unrealized_pnl=0.0,
+        source=DataSource.MANUAL,
+    )
+    in_memory_session.add(position)
+    in_memory_session.flush()
+
+    order = PositionOrder(
+        position_id=position.id,
+        source=DataSource.MANUAL,
+        open_qty=1.0,
+        remaining_qty=1.0,
+        entry_price=50_000.0,
+        status=PositionOrderStatus.OPEN,
+    )
+    in_memory_session.add(order)
+    in_memory_session.commit()
+
+    pid = int(position.id)
+    r = client_overridden_session.get(f"/api/v1/position-orders/by-position/{pid}")
+    assert r.status_code == 200
+    row = r.json()[0]
+    assert row["pnl_asset"] == "BTC"
+    assert row["unrealized_pnl_usdt"] == pytest.approx(2_000.0)
+    assert row["unrealized_pnl_native"] == pytest.approx(2_000.0 / 52_000.0)
+
+    rpos = client_overridden_session.get("/api/v1/positions?view=split")
+    phit = next(x for x in rpos.json() if x["id"] == pid)
+    assert phit["account_type"] == "coin_perp"
+    assert phit["pnl_asset"] == "BTC"

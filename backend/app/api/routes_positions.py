@@ -5,11 +5,14 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy import func
 from sqlmodel import select
 
 from ..db.models import (
+    Account,
     PositionCloseExecution,
     PositionCurrent,
+    PositionOrder,
     PositionOrderMatch,
 )
 from ..schemas.position import PositionMerged, PositionRead
@@ -24,6 +27,11 @@ from ..schemas.position_order import (
 from ..services.aggregate.position_aggregator import (
     PositionInput,
     aggregate_positions,
+)
+from ..services.pnl_calculator import (
+    base_asset_from_canonical,
+    is_coin_margined_account,
+    position_unrealized_pnl_usdt,
 )
 from ..services.realized_pnl_query import realized_pnl_totals_by_position_id
 from ..services.position_order_close import (
@@ -44,11 +52,41 @@ def list_positions(
     rows = list(session.exec(select(PositionCurrent)).all())
     realized_by_pos = realized_pnl_totals_by_position_id(session)
 
+    accounts = {
+        int(a.id): a
+        for a in session.exec(select(Account)).all()
+        if a.id is not None
+    }
+    order_counts: dict[int, int] = {
+        int(pid): int(cnt)
+        for pid, cnt in session.exec(
+            select(PositionOrder.position_id, func.count())
+            .group_by(PositionOrder.position_id)
+        ).all()
+        if pid is not None
+    }
+
     if view == "split":
         out: list[PositionRead] = []
         for r in rows:
+            pid = int(r.id or 0)
+            account = accounts.get(int(r.account_id))
+            has_orders = order_counts.get(pid, 0) > 0
+            mark = float(r.mark_price or 0.0)
+            upnl = position_unrealized_pnl_usdt(
+                account_type=account.account_type if account else None,
+                side=r.side,
+                unrealized_pnl=float(r.unrealized_pnl or 0.0),
+                mark_price=mark,
+                has_position_orders=has_orders,
+            )
             data = r.model_dump()
-            data["realized_pnl"] = float(realized_by_pos.get(int(r.id or 0), 0.0))
+            data["unrealized_pnl"] = upnl
+            data["realized_pnl"] = float(realized_by_pos.get(pid, 0.0))
+            if account:
+                data["account_type"] = account.account_type.value
+                if is_coin_margined_account(account.account_type):
+                    data["pnl_asset"] = base_asset_from_canonical(r.canonical_symbol)
             out.append(PositionRead.model_validate(data))
         return out
 
@@ -60,7 +98,15 @@ def list_positions(
             qty=r.qty,
             entry_price=r.entry_price,
             mark_price=r.mark_price,
-            unrealized_pnl=r.unrealized_pnl,
+            unrealized_pnl=position_unrealized_pnl_usdt(
+                account_type=accounts.get(int(r.account_id)).account_type
+                if accounts.get(int(r.account_id))
+                else None,
+                side=r.side,
+                unrealized_pnl=float(r.unrealized_pnl or 0.0),
+                mark_price=float(r.mark_price or 0.0),
+                has_position_orders=order_counts.get(int(r.id or 0), 0) > 0,
+            ),
             realized_pnl=float(realized_by_pos.get(int(r.id or 0), 0.0)),
         )
         for r in rows

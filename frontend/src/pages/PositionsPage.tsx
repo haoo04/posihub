@@ -43,6 +43,26 @@ export function PositionsPage() {
     [accounts.data]
   );
 
+  const accountById = useMemo(
+    () => new Map((accounts.data ?? []).map((a) => [a.id, a])),
+    [accounts.data]
+  );
+
+  const isCoinPerpPosition = (p: {
+    account_id: number;
+    account_type?: string | null;
+  }) =>
+    p.account_type === "coin_perp" ||
+    accountById.get(p.account_id)?.account_type === "coin_perp";
+
+  const pnlAssetFor = (p: PositionSplit) =>
+    p.pnl_asset ?? p.canonical_symbol.split("-")[0];
+
+  const orderTableProps = (p: PositionSplit) => ({
+    isCoinMargined: isCoinPerpPosition(p),
+    pnlAsset: isCoinPerpPosition(p) ? pnlAssetFor(p) : null,
+  });
+
   const filteredSplit = useMemo<PositionSplit[]>(() => {
     const list = split.data ?? [];
     if (!keyword) return list;
@@ -102,13 +122,23 @@ export function PositionsPage() {
       title: "未实现盈亏",
       dataIndex: "unrealized_pnl",
       align: "right" as const,
-      render: (v: number) => <PnlText value={v} />,
+      render: (v: number, record: PositionSplit) => (
+        <PnlText
+          value={v}
+          suffix={isCoinPerpPosition(record) ? "USDT" : undefined}
+        />
+      ),
     },
     {
       title: "已实现盈亏",
       dataIndex: "realized_pnl",
       align: "right" as const,
-      render: (v: number) => <PnlText value={v} />,
+      render: (v: number, record: PositionSplit) => (
+        <PnlText
+          value={v}
+          suffix={isCoinPerpPosition(record) ? "USDT" : undefined}
+        />
+      ),
     },
     {
       title: "杠杆",
@@ -262,7 +292,10 @@ export function PositionsPage() {
               未实现盈亏
             </Text>
             <div>
-              <PnlText value={position.unrealized_pnl} />
+              <PnlText
+                value={position.unrealized_pnl}
+                suffix={isCoinPerpPosition(position) ? "USDT" : undefined}
+              />
             </div>
           </Col>
           <Col span={12}>
@@ -270,7 +303,10 @@ export function PositionsPage() {
               已实现盈亏
             </Text>
             <div>
-              <PnlText value={position.realized_pnl} />
+              <PnlText
+                value={position.realized_pnl}
+                suffix={isCoinPerpPosition(position) ? "USDT" : undefined}
+              />
             </div>
           </Col>
           <Col span={12}>
@@ -301,7 +337,12 @@ export function PositionsPage() {
             {
               key: "orders",
               label: "订单详情",
-              children: <PositionOrdersTable positionId={position.id} />,
+              children: (
+                <PositionOrdersTable
+                  positionId={position.id}
+                  {...orderTableProps(position)}
+                />
+              ),
             },
           ]}
         />
@@ -467,7 +508,10 @@ export function PositionsPage() {
                 isSplit
                   ? {
                       expandedRowRender: (record: PositionSplit) => (
-                        <PositionOrdersTable positionId={record.id} />
+                        <PositionOrdersTable
+                          positionId={record.id}
+                          {...orderTableProps(record)}
+                        />
                       ),
                       rowExpandable: () => true,
                     }

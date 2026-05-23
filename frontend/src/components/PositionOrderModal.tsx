@@ -15,6 +15,7 @@ interface PositionOrderModalProps {
   open: boolean;
   positionId: number;
   order?: PositionOrderWithPnL;
+  marginAsset?: string | null;
   onCancel: () => void;
   onSuccess: () => void;
 }
@@ -23,6 +24,7 @@ export function PositionOrderModal({
   open,
   positionId,
   order,
+  marginAsset = null,
   onCancel,
   onSuccess,
 }: PositionOrderModalProps) {
@@ -195,8 +197,14 @@ export function PositionOrderModal({
 
         <Form.Item
           name="margin"
-          label="保证金 (USDT)"
-          tooltip="使用的保证金数量"
+          label={
+            marginAsset ? `保证金 (${marginAsset})` : "保证金 (USDT)"
+          }
+          tooltip={
+            marginAsset
+              ? `使用的保证金数量，以 ${marginAsset} 计`
+              : "使用的保证金数量"
+          }
         >
           <InputNumber
             style={{ width: "100%" }}
