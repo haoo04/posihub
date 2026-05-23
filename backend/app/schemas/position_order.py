@@ -48,10 +48,17 @@ class PositionOrderRead(PositionOrderBase):
 
 class PositionOrderWithPnL(PositionOrderRead):
     """Position order with calculated unrealized PnL."""
+
     unrealized_pnl: float
     unrealized_pnl_pct: float
     mark_price: float
     realized_pnl: float = 0.0
+    close_price: Optional[float] = None
+    pnl_asset: Optional[str] = None
+    unrealized_pnl_native: Optional[float] = None
+    unrealized_pnl_usdt: Optional[float] = None
+    realized_pnl_native: Optional[float] = None
+    realized_pnl_usdt: Optional[float] = None
 
 
 class PositionCloseRequest(APIModel):

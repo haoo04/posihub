@@ -19,7 +19,7 @@ import {
   ScissorOutlined,
   SwapOutlined,
 } from "@ant-design/icons";
-import { PnlText } from "./PnlText";
+import { OrderMarginDisplay, OrderPnlDisplay } from "./OrderPnlDisplay";
 import RelativeTime from "./RelativeTime";
 import { useDeletePositionOrder, usePositionOrders } from "@/api/hooks";
 import type { PositionOrderWithPnL } from "@/api/types";
@@ -34,6 +34,35 @@ const { confirm } = Modal;
 
 interface PositionOrdersTableProps {
   positionId: number;
+  isCoinMargined?: boolean;
+  pnlAsset?: string | null;
+}
+
+function renderPriceCell(record: PositionOrderWithPnL) {
+  const closePx = record.close_price;
+
+  if (record.status === "open") {
+    return (
+      <span className="posi-numeric">{fmtPrice(record.mark_price)}</span>
+    );
+  }
+
+  if (record.status === "closed") {
+    return (
+      <span className="posi-numeric">
+        {closePx != null ? fmtPrice(closePx) : "—"}
+      </span>
+    );
+  }
+
+  return (
+    <Space direction="vertical" size={0} style={{ textAlign: "right" }}>
+      <Text type="secondary" style={{ fontSize: 11 }}>
+        平仓 {closePx != null ? fmtPrice(closePx) : "—"}
+      </Text>
+      <span className="posi-numeric">{fmtPrice(record.mark_price)}</span>
+    </Space>
+  );
 }
 
 function sourceTag(source: string) {
@@ -61,7 +90,11 @@ function statusTag(status: string) {
   return <Tag color={colorMap[status]}>{textMap[status] || status}</Tag>;
 }
 
-export function PositionOrdersTable({ positionId }: PositionOrdersTableProps) {
+export function PositionOrdersTable({
+  positionId,
+  isCoinMargined = false,
+  pnlAsset = null,
+}: PositionOrdersTableProps) {
   const { isMobile } = useBreakpoint();
   const { data: orders, isLoading, error } = usePositionOrders(positionId);
   const deleteMutation = useDeletePositionOrder();
@@ -138,39 +171,52 @@ export function PositionOrdersTable({ positionId }: PositionOrdersTableProps) {
       ),
     },
     {
-      title: "当前价",
-      dataIndex: "mark_price",
+      title: "价格",
+      key: "price",
       align: "right" as const,
-      width: 120,
-      render: (v: number) => (
-        <span className="posi-numeric">{fmtPrice(v)}</span>
-      ),
+      width: 130,
+      render: (_: unknown, record: PositionOrderWithPnL) => renderPriceCell(record),
     },
     {
       title: "未实现盈亏",
       dataIndex: "unrealized_pnl",
       align: "right" as const,
-      width: 140,
-      render: (v: number, record: PositionOrderWithPnL) => (
-        <Space direction="vertical" size={0} style={{ textAlign: "right" }}>
-          <PnlText value={v} />
-          <Text
-            type="secondary"
-            style={{ fontSize: 11 }}
-            className={v >= 0 ? "posi-positive" : "posi-negative"}
-          >
-            {v >= 0 ? "+" : ""}
-            {record.unrealized_pnl_pct.toFixed(2)}%
-          </Text>
-        </Space>
-      ),
+      width: 150,
+      render: (_: number, record: PositionOrderWithPnL) => {
+        const upnl = record.unrealized_pnl_usdt ?? record.unrealized_pnl;
+        return (
+          <Space direction="vertical" size={0} style={{ textAlign: "right" }}>
+            <OrderPnlDisplay
+              nativeValue={record.unrealized_pnl_native}
+              usdtValue={upnl}
+              asset={record.pnl_asset ?? pnlAsset}
+              coinMargined={isCoinMargined}
+            />
+            <Text
+              type="secondary"
+              style={{ fontSize: 11 }}
+              className={upnl >= 0 ? "posi-positive" : "posi-negative"}
+            >
+              {upnl >= 0 ? "+" : ""}
+              {record.unrealized_pnl_pct.toFixed(2)}%
+            </Text>
+          </Space>
+        );
+      },
     },
     {
       title: "已实现盈亏",
       dataIndex: "realized_pnl",
       align: "right" as const,
-      width: 120,
-      render: (v: number) => <PnlText value={v} />,
+      width: 140,
+      render: (_: number, record: PositionOrderWithPnL) => (
+        <OrderPnlDisplay
+          nativeValue={record.realized_pnl_native}
+          usdtValue={record.realized_pnl_usdt ?? record.realized_pnl}
+          asset={record.pnl_asset ?? pnlAsset}
+          coinMargined={isCoinMargined}
+        />
+      ),
     },
     {
       title: "杠杆",
@@ -186,7 +232,11 @@ export function PositionOrdersTable({ positionId }: PositionOrdersTableProps) {
       width: 120,
       render: (v: number | null) => (
         <Text type="secondary" style={{ fontSize: 12 }}>
-          {v !== null ? fmtPrice(v) : "—"}
+          <OrderMarginDisplay
+            value={v}
+            asset={pnlAsset}
+            coinMargined={isCoinMargined}
+          />
         </Text>
       ),
     },
@@ -309,26 +359,37 @@ export function PositionOrdersTable({ positionId }: PositionOrdersTableProps) {
           </Col>
           <Col span={12}>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              当前价
+              {order.status === "closed"
+                ? "平仓价"
+                : order.status === "partial"
+                  ? "平仓 / 当前"
+                  : "当前价"}
             </Text>
-            <div>
-              <span className="posi-numeric">{fmtPrice(order.mark_price)}</span>
-            </div>
+            <div>{renderPriceCell(order)}</div>
           </Col>
           <Col span={24}>
             <Text type="secondary" style={{ fontSize: 12 }}>
               未实现盈亏
             </Text>
             <div>
-              <PnlText value={order.unrealized_pnl} />
+              <OrderPnlDisplay
+                nativeValue={order.unrealized_pnl_native}
+                usdtValue={order.unrealized_pnl_usdt ?? order.unrealized_pnl}
+                asset={order.pnl_asset ?? pnlAsset}
+                coinMargined={isCoinMargined}
+              />
               <Text
                 type="secondary"
                 style={{ fontSize: 11, marginLeft: 8 }}
                 className={
-                  order.unrealized_pnl >= 0 ? "posi-positive" : "posi-negative"
+                  (order.unrealized_pnl_usdt ?? order.unrealized_pnl) >= 0
+                    ? "posi-positive"
+                    : "posi-negative"
                 }
               >
-                {order.unrealized_pnl >= 0 ? "+" : ""}
+                {(order.unrealized_pnl_usdt ?? order.unrealized_pnl) >= 0
+                  ? "+"
+                  : ""}
                 {order.unrealized_pnl_pct.toFixed(2)}%
               </Text>
             </div>
@@ -338,7 +399,12 @@ export function PositionOrdersTable({ positionId }: PositionOrdersTableProps) {
               已实现盈亏
             </Text>
             <div>
-              <PnlText value={order.realized_pnl} />
+              <OrderPnlDisplay
+                nativeValue={order.realized_pnl_native}
+                usdtValue={order.realized_pnl_usdt ?? order.realized_pnl}
+                asset={order.pnl_asset ?? pnlAsset}
+                coinMargined={isCoinMargined}
+              />
             </div>
           </Col>
           <Col span={12}>
@@ -354,9 +420,11 @@ export function PositionOrdersTable({ positionId }: PositionOrdersTableProps) {
               保证金
             </Text>
             <div>
-              <Text type="secondary" style={{ fontSize: 13 }}>
-                {order.margin !== null ? fmtPrice(order.margin) : "—"}
-              </Text>
+              <OrderMarginDisplay
+                value={order.margin}
+                asset={pnlAsset}
+                coinMargined={isCoinMargined}
+              />
             </div>
           </Col>
           <Col span={12}>
@@ -480,6 +548,7 @@ export function PositionOrdersTable({ positionId }: PositionOrdersTableProps) {
       <PositionOrderModal
         open={isCreateModalOpen}
         positionId={positionId}
+        marginAsset={isCoinMargined ? pnlAsset : null}
         onCancel={() => setIsCreateModalOpen(false)}
         onSuccess={() => setIsCreateModalOpen(false)}
       />
@@ -488,6 +557,7 @@ export function PositionOrdersTable({ positionId }: PositionOrdersTableProps) {
         open={!!editingOrder}
         positionId={positionId}
         order={editingOrder || undefined}
+        marginAsset={isCoinMargined ? pnlAsset : null}
         onCancel={() => setEditingOrder(null)}
         onSuccess={() => setEditingOrder(null)}
       />

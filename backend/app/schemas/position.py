@@ -25,6 +25,8 @@ class PositionRead(APIModel):
     margin_mode: Optional[str] = None
     updated_at: datetime
     source: DataSource
+    account_type: Optional[str] = None
+    pnl_asset: Optional[str] = None
 
 
 class PositionMerged(APIModel):
