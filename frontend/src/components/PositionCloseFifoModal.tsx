@@ -9,6 +9,7 @@ interface PositionCloseFifoModalProps {
   open: boolean;
   positionId: number;
   defaultClosePrice?: number;
+  isSpot?: boolean;
   onCancel: () => void;
   onSuccess: () => void;
 }
@@ -17,6 +18,7 @@ export function PositionCloseFifoModal({
   open,
   positionId,
   defaultClosePrice,
+  isSpot = false,
   onCancel,
   onSuccess,
 }: PositionCloseFifoModalProps) {
@@ -51,7 +53,7 @@ export function PositionCloseFifoModal({
         },
       });
       message.success(
-        `平仓成功，已实现盈亏 ${result.realized_pnl.toFixed(2)}`
+        `${isSpot ? "卖出" : "平仓"}成功，已实现盈亏 ${result.realized_pnl.toFixed(2)}`
       );
       onSuccess();
     } catch (err) {
@@ -60,19 +62,19 @@ export function PositionCloseFifoModal({
       }
       const detail =
         (err as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail ?? "平仓失败";
+          ?.detail ?? (isSpot ? "卖出失败" : "平仓失败");
       message.error(detail);
     }
   };
 
   return (
     <Modal
-      title="FIFO 平仓"
+      title={isSpot ? "FIFO 卖出" : "FIFO 平仓"}
       open={open}
       onOk={handleSubmit}
       onCancel={onCancel}
       confirmLoading={closeMutation.isPending}
-      okText="确认平仓"
+      okText={isSpot ? "确认卖出" : "确认平仓"}
       cancelText="取消"
       width={520}
     >
@@ -80,10 +82,10 @@ export function PositionCloseFifoModal({
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="按订单 created_at 升序消耗剩余数量。"
+        message={isSpot ? "按买入时间升序消耗剩余数量。" : "按订单 created_at 升序消耗剩余数量。"}
         description={
           <span>
-            可平总量：
+            {isSpot ? "可卖总量" : "可平总量"}：
             <span className="posi-numeric">{fmtQty(totalRemaining)}</span>
           </span>
         }
@@ -92,9 +94,9 @@ export function PositionCloseFifoModal({
       <Form form={form} layout="vertical">
         <Form.Item
           name="close_qty"
-          label="平仓数量"
+          label={isSpot ? "卖出数量" : "平仓数量"}
           rules={[
-            { required: true, message: "请输入平仓数量" },
+            { required: true, message: isSpot ? "请输入卖出数量" : "请输入平仓数量" },
             { type: "number", min: 0.00000001, message: "数量必须大于 0" },
             {
               validator: (_, value) =>
@@ -115,9 +117,9 @@ export function PositionCloseFifoModal({
 
         <Form.Item
           name="close_price"
-          label="平仓价"
+          label={isSpot ? "卖出价" : "平仓价"}
           rules={[
-            { required: true, message: "请输入平仓价" },
+            { required: true, message: isSpot ? "请输入卖出价" : "请输入平仓价" },
             { type: "number", min: 0.00000001, message: "价格必须大于 0" },
           ]}
         >

@@ -33,6 +33,10 @@ from ..services.pnl_calculator import (
     is_coin_margined_account,
     position_unrealized_pnl_usdt,
 )
+from ..services.position_market import (
+    instrument_type_from_canonical,
+    position_matches_market,
+)
 from ..services.realized_pnl_query import realized_pnl_totals_by_position_id
 from ..services.position_order_close import (
     FifoCloseError,
@@ -48,8 +52,9 @@ router = APIRouter(prefix="/api/v1/positions", tags=["positions"])
 def list_positions(
     session: SessionDep,
     view: str = Query("split", pattern="^(split|merged)$"),
+    market: str = Query("derivatives", pattern="^(derivatives|spot)$"),
 ) -> list[Any]:
-    rows = list(session.exec(select(PositionCurrent)).all())
+    all_rows = list(session.exec(select(PositionCurrent)).all())
     realized_by_pos = realized_pnl_totals_by_position_id(session)
 
     accounts = {
@@ -66,6 +71,14 @@ def list_positions(
         if pid is not None
     }
 
+    rows = [
+        r
+        for r in all_rows
+        if position_matches_market(
+            r, accounts.get(int(r.account_id)), market
+        )
+    ]
+
     if view == "split":
         out: list[PositionRead] = []
         for r in rows:
@@ -73,6 +86,7 @@ def list_positions(
             account = accounts.get(int(r.account_id))
             has_orders = order_counts.get(pid, 0) > 0
             mark = float(r.mark_price or 0.0)
+            entry = float(r.entry_price or 0.0)
             upnl = position_unrealized_pnl_usdt(
                 account_type=account.account_type if account else None,
                 side=r.side,
@@ -80,9 +94,16 @@ def list_positions(
                 mark_price=mark,
                 has_position_orders=has_orders,
             )
+            instrument = instrument_type_from_canonical(r.canonical_symbol)
+            has_cost_basis = has_orders or entry > 0
+            if instrument.value == "spot" and not has_cost_basis:
+                upnl = 0.0
+
             data = r.model_dump()
             data["unrealized_pnl"] = upnl
             data["realized_pnl"] = float(realized_by_pos.get(pid, 0.0))
+            data["instrument_type"] = instrument.value
+            data["has_cost_basis"] = has_cost_basis
             if account:
                 data["account_type"] = account.account_type.value
                 if is_coin_margined_account(account.account_type):
@@ -123,6 +144,7 @@ def list_positions(
             realized_pnl=item.realized_pnl,
             notional=item.notional,
             accounts=item.accounts,
+            instrument_type=instrument_type_from_canonical(item.canonical_symbol).value,
         )
         for item in aggregated
     ]

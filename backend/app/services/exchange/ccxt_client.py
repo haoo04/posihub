@@ -133,6 +133,77 @@ class CcxtExchangeClient(ExchangeClient):
             )
         return self._parse_positions(raw or [])
 
+    def fetch_last_prices(self, symbols: list[str]) -> dict[str, float]:
+        if not symbols:
+            return {}
+
+        normalized = [s for s in symbols if s]
+        if not normalized:
+            return {}
+
+        has_tickers = bool(getattr(self._client, "has", {}).get("fetchTickers"))
+        if has_tickers:
+            try:
+                params = self._fetch_params()
+                raw = call_with_retry(
+                    lambda: self._client.fetch_tickers(normalized, params),
+                    label=f"{self.exchange_name}.fetch_tickers",
+                )
+                return self._parse_ticker_prices(raw or {}, normalized)
+            except Exception as exc:
+                _logger.debug(
+                    "%s fetch_tickers batch failed, falling back: %s",
+                    self.exchange_name,
+                    exc,
+                )
+
+        out: dict[str, float] = {}
+        for symbol in normalized:
+            try:
+                params = self._fetch_params()
+                ticker = call_with_retry(
+                    lambda s=symbol, p=params: self._client.fetch_ticker(s, p),
+                    label=f"{self.exchange_name}.fetch_ticker[{symbol}]",
+                )
+                price = self._extract_ticker_price(ticker or {})
+                if price > 0:
+                    out[symbol] = price
+            except Exception as exc:
+                _logger.debug(
+                    "%s fetch_ticker symbol=%s skipped: %s",
+                    self.exchange_name,
+                    symbol,
+                    exc,
+                )
+        return out
+
+    @staticmethod
+    def _extract_ticker_price(raw: dict[str, Any]) -> float:
+        for key in ("last", "close", "bid", "ask"):
+            value = raw.get(key)
+            if value is not None:
+                try:
+                    price = float(value)
+                except (TypeError, ValueError):
+                    continue
+                if price > 0:
+                    return price
+        return 0.0
+
+    @classmethod
+    def _parse_ticker_prices(
+        cls, raw: dict[str, Any], requested: list[str]
+    ) -> dict[str, float]:
+        out: dict[str, float] = {}
+        for symbol in requested:
+            ticker = raw.get(symbol)
+            if not isinstance(ticker, dict):
+                continue
+            price = cls._extract_ticker_price(ticker)
+            if price > 0:
+                out[symbol] = price
+        return out
+
     def _discover_bitget_coin_margin_coins(self) -> list[str]:
         """List margin coins for Bitget COIN-FUTURES (inverse) wallets."""
 

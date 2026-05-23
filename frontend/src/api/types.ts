@@ -4,6 +4,7 @@
 export type DataSource = "api" | "manual" | "simulated";
 export type PositionSide = "long" | "short" | "net";
 export type PositionOrderStatus = "open" | "partial" | "closed";
+export type PositionMarket = "derivatives" | "spot";
 export type InstrumentType = "spot" | "perp" | "futures";
 export type AccountType =
   | "spot"
@@ -84,6 +85,8 @@ export interface PositionSplit {
   source: DataSource;
   account_type?: AccountType | null;
   pnl_asset?: string | null;
+  instrument_type?: InstrumentType | null;
+  has_cost_basis?: boolean;
 }
 
 export interface PositionMerged {
@@ -96,6 +99,7 @@ export interface PositionMerged {
   realized_pnl: number;
   notional: number;
   accounts: number[];
+  instrument_type?: InstrumentType | null;
 }
 
 export interface PnlPoint {

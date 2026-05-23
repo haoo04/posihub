@@ -28,7 +28,7 @@ from sqlmodel import Session
 
 from ..core.config import get_settings
 from ..core.logging import get_logger
-from ..db.models import Account, DataSource
+from ..db.models import Account, AccountType, DataSource
 from ..db.session import session_scope
 from .exchange.factory import (
     build_client_for_account,
@@ -42,6 +42,9 @@ from .normalize.normalizer import (
     upsert_positions,
 )
 from .normalize.symbol_mapper import SymbolMapper
+from .position_market import instrument_hint_for_account
+from .position_order_close import refresh_account_positions_from_orders
+from .spot.position_deriver import derive_spot_positions
 
 _logger = get_logger(__name__)
 
@@ -86,39 +89,62 @@ def sync_account(session: Session, account: Account) -> SyncOutcome:
     except Exception as exc:
         return _record_failure(session, account, f"build client failed: {exc}", started)
 
+    exchange_name = _exchange_name(session, account)
+    mapper = SymbolMapper(session)
+    unmapped: list[str] = []
+
     try:
         balances = client.fetch_balance()
-        positions = client.fetch_positions()
+        if account.account_type == AccountType.SPOT:
+            positions = derive_spot_positions(
+                account_id=account.id or 0,
+                exchange_name=exchange_name,
+                balances=balances,
+                client=client,
+                mapper=mapper,
+                source=DataSource.API,
+                unmapped=unmapped,
+            )
+        elif account.account_type in (
+            AccountType.USDT_PERP,
+            AccountType.COIN_PERP,
+            AccountType.FUTURES,
+        ):
+            positions = normalize_positions(
+                account_id=account.id or 0,
+                exchange_name=exchange_name,
+                raws=client.fetch_positions(),
+                mapper=mapper,
+                source=DataSource.API,
+                instrument_hint=instrument_hint_for_account(account.account_type),
+                unmapped=unmapped,
+            )
+        elif account.account_type == AccountType.FUNDING:
+            positions = []
+        else:
+            positions = []
     except Exception as exc:
         return _record_failure(session, account, f"fetch failed: {exc}", started)
     finally:
         client.close()
 
-    mapper = SymbolMapper(session)
     normalised_balances = normalize_balances(
         account_id=account.id or 0, raws=balances, source=DataSource.API
     )
-    unmapped: list[str] = []
-    normalised_positions = normalize_positions(
-        account_id=account.id or 0,
-        exchange_name=_exchange_name(session, account),
-        raws=positions,
-        mapper=mapper,
-        source=DataSource.API,
-        unmapped=unmapped,
-    )
+    normalised_positions = positions
 
     if unmapped:
         _logger.warning(
             "sync: unresolved symbols account=%s exchange=%s symbols=%s",
             account.id,
-            _exchange_name(session, account),
+            exchange_name,
             unmapped,
         )
 
     try:
         upsert_balances(session, account.id or 0, normalised_balances)
         rows_written = upsert_positions(session, account.id or 0, normalised_positions)
+        refresh_account_positions_from_orders(session, account.id or 0, now=started)
     except Exception as exc:
         return _record_failure(session, account, f"persist failed: {exc}", started)
 
@@ -182,7 +208,8 @@ def _sync_one_committed(account_id: int) -> SyncOutcome:
                     message="account missing or disabled",
                     synced_at=_utcnow(),
                 )
-            return sync_account(session, account)
+            outcome = sync_account(session, account)
+            return outcome
     except Exception as exc:  # pragma: no cover - belt and braces
         _logger.exception("unexpected sync failure account=%s", account_id)
         return SyncOutcome(

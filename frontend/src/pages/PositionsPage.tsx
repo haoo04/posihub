@@ -20,20 +20,42 @@ import { PositionOrdersTable } from "@/components/PositionOrdersTable";
 import RelativeTime from "@/components/RelativeTime";
 import { useAccounts, usePositions } from "@/api/hooks";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
-import type { PositionMerged, PositionSplit } from "@/api/types";
+import type {
+  PositionMarket,
+  PositionMerged,
+  PositionSplit,
+} from "@/api/types";
 import { fmtPrice, fmtQty } from "@/utils/format";
 
 const { Text } = Typography;
 
 type View = "split" | "merged";
 
+function fmtCostPrice(
+  value: number,
+  hasCostBasis: boolean | undefined
+): string {
+  if (hasCostBasis === false || value <= 0) return "—";
+  return fmtPrice(value);
+}
+
+function fmtSpotUnrealized(
+  value: number,
+  hasCostBasis: boolean | undefined
+): number | null {
+  if (hasCostBasis === false) return null;
+  return value;
+}
+
 export function PositionsPage() {
   const { isMobile } = useBreakpoint();
+  const [market, setMarket] = useState<PositionMarket>("derivatives");
   const [view, setView] = useState<View>("split");
   const [keyword, setKeyword] = useState("");
   const accounts = useAccounts();
-  const split = usePositions("split");
-  const merged = usePositions("merged");
+  const positions = usePositions(view, market);
+
+  const isSpot = market === "spot";
 
   const accountMap = useMemo(
     () =>
@@ -61,180 +83,225 @@ export function PositionsPage() {
   const orderTableProps = (p: PositionSplit) => ({
     isCoinMargined: isCoinPerpPosition(p),
     pnlAsset: isCoinPerpPosition(p) ? pnlAssetFor(p) : null,
+    isSpot,
   });
 
-  const filteredSplit = useMemo<PositionSplit[]>(() => {
-    const list = split.data ?? [];
+  const filteredData = useMemo(() => {
+    const list = positions.data ?? [];
     if (!keyword) return list;
     const k = keyword.toUpperCase();
-    return list.filter((p) =>
-      `${p.canonical_symbol} ${accountMap.get(p.account_id) ?? ""}`
-        .toUpperCase()
-        .includes(k)
+    if (view === "split") {
+      return (list as PositionSplit[]).filter((p) =>
+        `${p.canonical_symbol} ${accountMap.get(p.account_id) ?? ""}`
+          .toUpperCase()
+          .includes(k)
+      );
+    }
+    return (list as PositionMerged[]).filter((p) =>
+      p.canonical_symbol.toUpperCase().includes(k)
     );
-  }, [split.data, keyword, accountMap]);
+  }, [positions.data, keyword, accountMap, view]);
 
-  const filteredMerged = useMemo<PositionMerged[]>(() => {
-    const list = merged.data ?? [];
-    if (!keyword) return list;
-    const k = keyword.toUpperCase();
-    return list.filter((p) => p.canonical_symbol.toUpperCase().includes(k));
-  }, [merged.data, keyword]);
+  const splitColumns = useMemo(
+    () => [
+      {
+        title: isSpot ? "交易对" : "合约",
+        dataIndex: "canonical_symbol",
+        render: (v: string) => <Text strong>{v}</Text>,
+      },
+      {
+        title: "账户",
+        dataIndex: "account_id",
+        render: (v: number) => (
+          <Text type="secondary">{accountMap.get(v) ?? `#${v}`}</Text>
+        ),
+      },
+      ...(!isSpot
+        ? [
+            {
+              title: "方向",
+              dataIndex: "side",
+              width: 100,
+              render: (v: PositionSplit["side"]) => <SideTag side={v} />,
+            },
+          ]
+        : []),
+      {
+        title: "数量",
+        dataIndex: "qty",
+        align: "right" as const,
+        render: (v: number) => (
+          <span className="posi-numeric">{fmtQty(v)}</span>
+        ),
+      },
+      {
+        title: isSpot ? "成本价" : "开仓均价",
+        dataIndex: "entry_price",
+        align: "right" as const,
+        render: (v: number, record: PositionSplit) => (
+          <span className="posi-numeric">
+            {fmtCostPrice(v, record.has_cost_basis)}
+          </span>
+        ),
+      },
+      {
+        title: isSpot ? "现价" : "标记价",
+        dataIndex: "mark_price",
+        align: "right" as const,
+        render: (v: number) => (
+          <span className="posi-numeric">{fmtPrice(v)}</span>
+        ),
+      },
+      {
+        title: "未实现盈亏",
+        dataIndex: "unrealized_pnl",
+        align: "right" as const,
+        render: (v: number, record: PositionSplit) => {
+          const pnl = fmtSpotUnrealized(v, record.has_cost_basis);
+          if (pnl === null) {
+            return (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                —
+              </Text>
+            );
+          }
+          return (
+            <PnlText
+              value={pnl}
+              suffix={isCoinPerpPosition(record) ? "USDT" : undefined}
+            />
+          );
+        },
+      },
+      {
+        title: "已实现盈亏",
+        dataIndex: "realized_pnl",
+        align: "right" as const,
+        render: (v: number, record: PositionSplit) => (
+          <PnlText
+            value={v}
+            suffix={isCoinPerpPosition(record) ? "USDT" : undefined}
+          />
+        ),
+      },
+      ...(!isSpot
+        ? [
+            {
+              title: "杠杆",
+              dataIndex: "leverage",
+              align: "right" as const,
+              render: (v: number) => (
+                <span className="posi-numeric">{v}x</span>
+              ),
+            },
+            {
+              title: "保证金",
+              dataIndex: "margin_mode",
+              align: "right" as const,
+              render: (v: string | null) => (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {v ?? "—"}
+                </Text>
+              ),
+            },
+          ]
+        : []),
+      {
+        title: "更新",
+        dataIndex: "updated_at",
+        align: "right" as const,
+        render: (v: string) => (
+          <RelativeTime value={v} style={{ fontSize: 12 }} />
+        ),
+      },
+    ],
+    [accountMap, isSpot]
+  );
 
-  const splitColumns = [
-    {
-      title: "合约",
-      dataIndex: "canonical_symbol",
-      render: (v: string) => <Text strong>{v}</Text>,
-    },
-    {
-      title: "账户",
-      dataIndex: "account_id",
-      render: (v: number) => (
-        <Text type="secondary">{accountMap.get(v) ?? `#${v}`}</Text>
-      ),
-    },
-    {
-      title: "方向",
-      dataIndex: "side",
-      width: 100,
-      render: (v: PositionSplit["side"]) => <SideTag side={v} />,
-    },
-    {
-      title: "数量",
-      dataIndex: "qty",
-      align: "right" as const,
-      render: (v: number) => <span className="posi-numeric">{fmtQty(v)}</span>,
-    },
-    {
-      title: "开仓均价",
-      dataIndex: "entry_price",
-      align: "right" as const,
-      render: (v: number) => <span className="posi-numeric">{fmtPrice(v)}</span>,
-    },
-    {
-      title: "标记价",
-      dataIndex: "mark_price",
-      align: "right" as const,
-      render: (v: number) => <span className="posi-numeric">{fmtPrice(v)}</span>,
-    },
-    {
-      title: "未实现盈亏",
-      dataIndex: "unrealized_pnl",
-      align: "right" as const,
-      render: (v: number, record: PositionSplit) => (
-        <PnlText
-          value={v}
-          suffix={isCoinPerpPosition(record) ? "USDT" : undefined}
-        />
-      ),
-    },
-    {
-      title: "已实现盈亏",
-      dataIndex: "realized_pnl",
-      align: "right" as const,
-      render: (v: number, record: PositionSplit) => (
-        <PnlText
-          value={v}
-          suffix={isCoinPerpPosition(record) ? "USDT" : undefined}
-        />
-      ),
-    },
-    {
-      title: "杠杆",
-      dataIndex: "leverage",
-      align: "right" as const,
-      render: (v: number) => <span className="posi-numeric">{v}x</span>,
-    },
-    {
-      title: "保证金",
-      dataIndex: "margin_mode",
-      align: "right" as const,
-      render: (v: string | null) => (
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {v ?? "—"}
-        </Text>
-      ),
-    },
-    {
-      title: "更新",
-      dataIndex: "updated_at",
-      align: "right" as const,
-      render: (v: string) => (
-        <RelativeTime value={v} style={{ fontSize: 12 }} />
-      ),
-    },
-  ];
-
-  const mergedColumns = [
-    {
-      title: "合约",
-      dataIndex: "canonical_symbol",
-      render: (v: string) => <Text strong>{v}</Text>,
-    },
-    {
-      title: "方向",
-      dataIndex: "side",
-      width: 100,
-      render: (v: PositionMerged["side"]) => <SideTag side={v} />,
-    },
-    {
-      title: "净持仓",
-      dataIndex: "qty",
-      align: "right" as const,
-      render: (v: number) => <span className="posi-numeric">{fmtQty(v)}</span>,
-    },
-    {
-      title: "加权均价",
-      dataIndex: "avg_entry_price",
-      align: "right" as const,
-      render: (v: number) => <span className="posi-numeric">{fmtPrice(v)}</span>,
-    },
-    {
-      title: "标记价",
-      dataIndex: "mark_price",
-      align: "right" as const,
-      render: (v: number) => <span className="posi-numeric">{fmtPrice(v)}</span>,
-    },
-    {
-      title: "名义敞口",
-      dataIndex: "notional",
-      align: "right" as const,
-      render: (v: number) => (
-        <span className="posi-numeric">{fmtPrice(Math.abs(v))}</span>
-      ),
-    },
-    {
-      title: "未实现盈亏",
-      dataIndex: "unrealized_pnl",
-      align: "right" as const,
-      render: (v: number) => <PnlText value={v} />,
-    },
-    {
-      title: "已实现盈亏",
-      dataIndex: "realized_pnl",
-      align: "right" as const,
-      render: (v: number) => <PnlText value={v} />,
-    },
-    {
-      title: "账户分布",
-      dataIndex: "accounts",
-      align: "right" as const,
-      render: (ids: number[]) => (
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {ids.length} 账户 ·{" "}
-          {ids.map((i) => accountMap.get(i) ?? `#${i}`).join(", ")}
-        </Text>
-      ),
-    },
-  ];
+  const mergedColumns = useMemo(
+    () => [
+      {
+        title: isSpot ? "交易对" : "合约",
+        dataIndex: "canonical_symbol",
+        render: (v: string) => <Text strong>{v}</Text>,
+      },
+      ...(!isSpot
+        ? [
+            {
+              title: "方向",
+              dataIndex: "side",
+              width: 100,
+              render: (v: PositionMerged["side"]) => <SideTag side={v} />,
+            },
+          ]
+        : []),
+      {
+        title: isSpot ? "总持仓" : "净持仓",
+        dataIndex: "qty",
+        align: "right" as const,
+        render: (v: number) => (
+          <span className="posi-numeric">{fmtQty(v)}</span>
+        ),
+      },
+      {
+        title: isSpot ? "加权成本" : "加权均价",
+        dataIndex: "avg_entry_price",
+        align: "right" as const,
+        render: (v: number) => (
+          <span className="posi-numeric">
+            {v > 0 ? fmtPrice(v) : "—"}
+          </span>
+        ),
+      },
+      {
+        title: isSpot ? "现价" : "标记价",
+        dataIndex: "mark_price",
+        align: "right" as const,
+        render: (v: number) => (
+          <span className="posi-numeric">{fmtPrice(v)}</span>
+        ),
+      },
+      {
+        title: isSpot ? "总市值" : "名义敞口",
+        dataIndex: "notional",
+        align: "right" as const,
+        render: (v: number) => (
+          <span className="posi-numeric">{fmtPrice(Math.abs(v))}</span>
+        ),
+      },
+      {
+        title: "未实现盈亏",
+        dataIndex: "unrealized_pnl",
+        align: "right" as const,
+        render: (v: number) => <PnlText value={v} />,
+      },
+      {
+        title: "已实现盈亏",
+        dataIndex: "realized_pnl",
+        align: "right" as const,
+        render: (v: number) => <PnlText value={v} />,
+      },
+      {
+        title: "账户分布",
+        dataIndex: "accounts",
+        align: "right" as const,
+        render: (ids: number[]) => (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {ids.length} 账户 ·{" "}
+            {ids.map((i) => accountMap.get(i) ?? `#${i}`).join(", ")}
+          </Text>
+        ),
+      },
+    ],
+    [accountMap, isSpot]
+  );
 
   const isSplit = view === "split";
-  const data = isSplit ? filteredSplit : filteredMerged;
-  const loading = isSplit ? split.isLoading : merged.isLoading;
-  const err = isSplit ? split.error : merged.error;
+  const columns = isSplit ? splitColumns : mergedColumns;
+  const emptyText = isSpot
+    ? "暂无现货持仓，请确认已添加现货账户并完成同步"
+    : "暂无合约持仓";
 
-  // Mobile card view for split positions
   const renderSplitCard = (position: PositionSplit) => (
     <Card
       key={position.id}
@@ -249,9 +316,11 @@ export function PositionsPage() {
               {position.canonical_symbol}
             </Text>
           </Col>
-          <Col>
-            <SideTag side={position.side} />
-          </Col>
+          {!isSpot && (
+            <Col>
+              <SideTag side={position.side} />
+            </Col>
+          )}
         </Row>
 
         <Row gutter={[8, 8]}>
@@ -260,7 +329,10 @@ export function PositionsPage() {
               账户
             </Text>
             <div>
-              <Text>{accountMap.get(position.account_id) ?? `#${position.account_id}`}</Text>
+              <Text>
+                {accountMap.get(position.account_id) ??
+                  `#${position.account_id}`}
+              </Text>
             </div>
           </Col>
           <Col span={12}>
@@ -273,15 +345,17 @@ export function PositionsPage() {
           </Col>
           <Col span={12}>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              开仓均价
+              {isSpot ? "成本价" : "开仓均价"}
             </Text>
             <div>
-              <span className="posi-numeric">{fmtPrice(position.entry_price)}</span>
+              <span className="posi-numeric">
+                {fmtCostPrice(position.entry_price, position.has_cost_basis)}
+              </span>
             </div>
           </Col>
           <Col span={12}>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              标记价
+              {isSpot ? "现价" : "标记价"}
             </Text>
             <div>
               <span className="posi-numeric">{fmtPrice(position.mark_price)}</span>
@@ -292,10 +366,17 @@ export function PositionsPage() {
               未实现盈亏
             </Text>
             <div>
-              <PnlText
-                value={position.unrealized_pnl}
-                suffix={isCoinPerpPosition(position) ? "USDT" : undefined}
-              />
+              {fmtSpotUnrealized(
+                position.unrealized_pnl,
+                position.has_cost_basis
+              ) === null ? (
+                <Text type="secondary">—</Text>
+              ) : (
+                <PnlText
+                  value={position.unrealized_pnl}
+                  suffix={isCoinPerpPosition(position) ? "USDT" : undefined}
+                />
+              )}
             </div>
           </Col>
           <Col span={12}>
@@ -309,23 +390,33 @@ export function PositionsPage() {
               />
             </div>
           </Col>
-          <Col span={12}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              杠杆 / 保证金
-            </Text>
-            <div>
-              <span className="posi-numeric">{position.leverage}x</span>
-              {position.margin_mode && (
-                <Text type="secondary" style={{ fontSize: 12, marginLeft: 4 }}>
-                  / {position.margin_mode}
-                </Text>
-              )}
-            </div>
-          </Col>
+          {!isSpot && (
+            <Col span={12}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                杠杆 / 保证金
+              </Text>
+              <div>
+                <span className="posi-numeric">{position.leverage}x</span>
+                {position.margin_mode && (
+                  <Text
+                    type="secondary"
+                    style={{ fontSize: 12, marginLeft: 4 }}
+                  >
+                    / {position.margin_mode}
+                  </Text>
+                )}
+              </div>
+            </Col>
+          )}
           <Col span={24}>
             <span style={{ fontSize: 12 }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>更新: </Text>
-              <RelativeTime value={position.updated_at} style={{ fontSize: 12 }} />
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                更新:{" "}
+              </Text>
+              <RelativeTime
+                value={position.updated_at}
+                style={{ fontSize: 12 }}
+              />
             </span>
           </Col>
         </Row>
@@ -336,7 +427,7 @@ export function PositionsPage() {
           items={[
             {
               key: "orders",
-              label: "订单详情",
+              label: isSpot ? "买入批次" : "订单详情",
               children: (
                 <PositionOrdersTable
                   positionId={position.id}
@@ -350,7 +441,6 @@ export function PositionsPage() {
     </Card>
   );
 
-  // Mobile card view for merged positions
   const renderMergedCard = (position: PositionMerged) => (
     <Card
       key={position.canonical_symbol}
@@ -365,15 +455,17 @@ export function PositionsPage() {
               {position.canonical_symbol}
             </Text>
           </Col>
-          <Col>
-            <SideTag side={position.side} />
-          </Col>
+          {!isSpot && (
+            <Col>
+              <SideTag side={position.side} />
+            </Col>
+          )}
         </Row>
 
         <Row gutter={[8, 8]}>
           <Col span={12}>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              净持仓
+              {isSpot ? "总持仓" : "净持仓"}
             </Text>
             <div>
               <span className="posi-numeric">{fmtQty(position.qty)}</span>
@@ -381,15 +473,19 @@ export function PositionsPage() {
           </Col>
           <Col span={12}>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              加权均价
+              {isSpot ? "加权成本" : "加权均价"}
             </Text>
             <div>
-              <span className="posi-numeric">{fmtPrice(position.avg_entry_price)}</span>
+              <span className="posi-numeric">
+                {position.avg_entry_price > 0
+                  ? fmtPrice(position.avg_entry_price)
+                  : "—"}
+              </span>
             </div>
           </Col>
           <Col span={12}>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              标记价
+              {isSpot ? "现价" : "标记价"}
             </Text>
             <div>
               <span className="posi-numeric">{fmtPrice(position.mark_price)}</span>
@@ -397,10 +493,12 @@ export function PositionsPage() {
           </Col>
           <Col span={12}>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              名义敞口
+              {isSpot ? "总市值" : "名义敞口"}
             </Text>
             <div>
-              <span className="posi-numeric">{fmtPrice(Math.abs(position.notional))}</span>
+              <span className="posi-numeric">
+                {fmtPrice(Math.abs(position.notional))}
+              </span>
             </div>
           </Col>
           <Col span={12}>
@@ -431,7 +529,9 @@ export function PositionsPage() {
           </Col>
           <Col span={24}>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              {position.accounts.map((i) => accountMap.get(i) ?? `#${i}`).join(", ")}
+              {position.accounts
+                .map((i) => accountMap.get(i) ?? `#${i}`)
+                .join(", ")}
             </Text>
           </Col>
         </Row>
@@ -443,7 +543,11 @@ export function PositionsPage() {
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
       <PageHeader
         title="仓位"
-        description="按账户拆分查看，或按统一 Symbol 合并净敞口"
+        description={
+          isSpot
+            ? "查看现货账户持仓，支持按账户拆分或跨账户合并"
+            : "按账户拆分查看合约仓位，或按统一 Symbol 合并净敞口"
+        }
         extra={
           <>
             <Input
@@ -456,15 +560,22 @@ export function PositionsPage() {
             />
             <Button
               icon={<ReloadOutlined />}
-              onClick={() => {
-                split.refetch();
-                merged.refetch();
-              }}
+              onClick={() => positions.refetch()}
             >
               刷新
             </Button>
           </>
         }
+      />
+
+      <Segmented
+        block={isMobile}
+        value={market}
+        onChange={(v) => setMarket(v as PositionMarket)}
+        options={[
+          { label: "合约", value: "derivatives" },
+          { label: "现货", value: "spot" },
+        ]}
       />
 
       <Segmented
@@ -479,29 +590,29 @@ export function PositionsPage() {
 
       {isMobile ? (
         <AsyncBoundary
-          loading={loading}
-          error={err}
-          empty={!data.length}
-          emptyText="暂无持仓"
+          loading={positions.isLoading}
+          error={positions.error}
+          empty={!filteredData.length}
+          emptyText={emptyText}
         >
           <div>
             {isSplit
-              ? (data as PositionSplit[]).map(renderSplitCard)
-              : (data as PositionMerged[]).map(renderMergedCard)}
+              ? (filteredData as PositionSplit[]).map(renderSplitCard)
+              : (filteredData as PositionMerged[]).map(renderMergedCard)}
           </div>
         </AsyncBoundary>
       ) : (
         <Card bodyStyle={{ padding: 0 }} style={{ borderRadius: 12 }}>
           <AsyncBoundary
-            loading={loading}
-            error={err}
-            empty={!data.length}
-            emptyText="暂无持仓"
+            loading={positions.isLoading}
+            error={positions.error}
+            empty={!filteredData.length}
+            emptyText={emptyText}
           >
             <Table
               rowKey={isSplit ? "id" : "canonical_symbol"}
-              columns={isSplit ? splitColumns : mergedColumns}
-              dataSource={data as never}
+              columns={columns as never}
+              dataSource={filteredData as never}
               pagination={{ pageSize: 20, hideOnSinglePage: true }}
               size="middle"
               expandable={
