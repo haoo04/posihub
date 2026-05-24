@@ -211,3 +211,29 @@ def test_coin_perp_order_pnl_native_fields(
     phit = next(x for x in rpos.json() if x["id"] == pid)
     assert phit["account_type"] == "coin_perp"
     assert phit["pnl_asset"] == "BTC"
+
+
+def test_position_matches_list_after_fifo_close(
+    in_memory_session: Session,
+    client_overridden_session: TestClient,
+) -> None:
+    position, order = _bootstrap_long_position(in_memory_session)
+    fifo_close_position(
+        in_memory_session,
+        position_id=position.id,
+        close_qty=0.25,
+        close_price=48_000.0,
+    )
+    in_memory_session.commit()
+
+    pid = int(position.id)
+    oid = int(order.id)
+
+    r = client_overridden_session.get(f"/api/v1/positions/{pid}/matches")
+    assert r.status_code == 200
+    rows = r.json()
+    assert len(rows) == 1
+    assert rows[0]["open_order_id"] == oid
+    assert rows[0]["matched_qty"] == pytest.approx(0.25)
+    assert rows[0]["close_price"] == pytest.approx(48_000.0)
+    assert rows[0]["realized_pnl"] == pytest.approx((48_000.0 - 50_000.0) * 0.25)

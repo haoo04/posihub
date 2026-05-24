@@ -25,8 +25,14 @@ import {
 } from "@ant-design/icons";
 import { OrderMarginDisplay, OrderPnlDisplay } from "./OrderPnlDisplay";
 import RelativeTime from "./RelativeTime";
-import { useDeletePositionOrder, usePositionOrders } from "@/api/hooks";
-import type { PositionOrderWithPnL } from "@/api/types";
+import {
+  queryKeys,
+  useDeletePositionOrder,
+  usePositionMatches,
+  usePositionOrders,
+} from "@/api/hooks";
+import { useQueryClient } from "@tanstack/react-query";
+import type { PositionOrderMatchRead, PositionOrderWithPnL } from "@/api/types";
 import { fmtPrice, fmtQty } from "@/utils/format";
 import {
   ACTIVE_DEFAULT_SORT,
@@ -38,7 +44,13 @@ import {
   type OrderSortField,
   type OrderSortState,
 } from "@/utils/positionOrders";
+import {
+  groupMatchesByOpenOrderId,
+  matchesForOrder,
+  orderHasMatches,
+} from "@/utils/positionOrderMatches";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
+import { PositionOrderMatchesPanel } from "./PositionOrderMatchesPanel";
 import { PositionOrderModal } from "./PositionOrderModal";
 import { PositionCloseFifoModal } from "./PositionCloseFifoModal";
 import { PositionCloseSpecifiedModal } from "./PositionCloseSpecifiedModal";
@@ -434,6 +446,8 @@ interface OrderSectionProps {
   onDelete: (orderId: number, isHistory: boolean) => void;
   emptyText: string;
   mobileSortOptions: readonly { label: string; value: string }[];
+  matchesByOrderId: Map<number, PositionOrderMatchRead[]>;
+  matchesLoading: boolean;
 }
 
 function OrderSection({
@@ -452,6 +466,8 @@ function OrderSection({
   onDelete,
   emptyText,
   mobileSortOptions,
+  matchesByOrderId,
+  matchesLoading,
 }: OrderSectionProps) {
   const isHistory = variant === "history";
   const sortedOrders = useMemo(
@@ -669,6 +685,30 @@ function OrderSection({
           )}
         </Row>
 
+        {orderHasMatches(matchesByOrderId, order.id) && (
+          <Collapse
+            size="small"
+            items={[
+              {
+                key: "matches",
+                label: (
+                  <Text style={{ fontSize: 12 }}>
+                    配对记录 (
+                    {matchesForOrder(matchesByOrderId, order.id).length})
+                  </Text>
+                ),
+                children: (
+                  <PositionOrderMatchesPanel
+                    matches={matchesForOrder(matchesByOrderId, order.id)}
+                    isSpot={isSpot}
+                    loading={matchesLoading}
+                  />
+                ),
+              },
+            ]}
+          />
+        )}
+
         <Space
           size="small"
           style={{ width: "100%", justifyContent: "flex-end" }}
@@ -765,6 +805,26 @@ function OrderSection({
           locale={{ emptyText }}
           onChange={handleTableChange}
           showSorterTooltip={false}
+          expandable={{
+            expandedRowRender: (record) => (
+              <div style={{ margin: "0 0 8px 48px" }}>
+                <Text
+                  type="secondary"
+                  style={{ fontSize: 12, display: "block", marginBottom: 8 }}
+                >
+                  配对记录
+                </Text>
+                <PositionOrderMatchesPanel
+                  matches={matchesForOrder(matchesByOrderId, record.id)}
+                  isSpot={isSpot}
+                  loading={matchesLoading}
+                />
+              </div>
+            ),
+            rowExpandable: (record) =>
+              orderHasMatches(matchesByOrderId, record.id),
+            expandRowByClick: false,
+          }}
         />
       )}
     </div>
@@ -778,8 +838,16 @@ export function PositionOrdersTable({
   isSpot = false,
 }: PositionOrdersTableProps) {
   const { isMobile } = useBreakpoint();
+  const queryClient = useQueryClient();
   const { data: orders, isLoading, error } = usePositionOrders(positionId);
+  const { data: matches, isLoading: matchesLoading } =
+    usePositionMatches(positionId);
   const deleteMutation = useDeletePositionOrder();
+
+  const matchesByOrderId = useMemo(
+    () => groupMatchesByOpenOrderId(matches ?? []),
+    [matches]
+  );
   const [editingOrder, setEditingOrder] = useState<PositionOrderWithPnL | null>(
     null
   );
@@ -824,6 +892,9 @@ export function PositionOrdersTable({
       onOk: async () => {
         try {
           await deleteMutation.mutateAsync(orderId);
+          await queryClient.invalidateQueries({
+            queryKey: queryKeys.positionMatches(positionId),
+          });
           message.success("订单已删除");
         } catch {
           message.error("删除失败");
@@ -904,6 +975,8 @@ export function PositionOrdersTable({
             onDelete={handleDelete}
             emptyText="暂无持仓中订单"
             mobileSortOptions={ACTIVE_MOBILE_SORT_OPTIONS}
+            matchesByOrderId={matchesByOrderId}
+            matchesLoading={matchesLoading}
           />
 
           {(history.length > 0 || isLoading) && (
@@ -944,6 +1017,8 @@ export function PositionOrdersTable({
                       onDelete={handleDelete}
                       emptyText="暂无历史订单"
                       mobileSortOptions={HISTORY_MOBILE_SORT_OPTIONS}
+                      matchesByOrderId={matchesByOrderId}
+                      matchesLoading={matchesLoading}
                     />
                   ),
                 },
