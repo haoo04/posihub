@@ -46,6 +46,7 @@ htmlcov/
 *.sqlite
 *.sqlite3
 backend/*.db
+/Data
 
 # -----------------------------
 # Runtime logs / pid files
