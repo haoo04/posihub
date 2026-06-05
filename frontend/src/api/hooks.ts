@@ -14,6 +14,9 @@ import type {
   Exchange,
   FifoCloseResponse,
   Health,
+  HistoryImportCommitResponse,
+  HistoryImportPreviewRequest,
+  HistoryImportPreviewResponse,
   ManualSnapshotCreate,
   ManualSnapshotResult,
   Overview,
@@ -153,6 +156,48 @@ export function useSyncAccount() {
       qc.invalidateQueries({ queryKey: queryKeys.accounts });
       qc.invalidateQueries({ queryKey: queryKeys.overview });
       qc.invalidateQueries({ queryKey: ["positions"] });
+    },
+  });
+}
+
+export function useHistoryImportPreview() {
+  return useMutation({
+    mutationFn: async ({
+      accountId,
+      payload,
+    }: {
+      accountId: number;
+      payload: HistoryImportPreviewRequest;
+    }) =>
+      (
+        await http.post<HistoryImportPreviewResponse>(
+          `/api/v1/accounts/${accountId}/history-import/preview`,
+          payload
+        )
+      ).data,
+  });
+}
+
+export function useHistoryImportCommit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      accountId,
+      previewId,
+    }: {
+      accountId: number;
+      previewId: string;
+    }) =>
+      (
+        await http.post<HistoryImportCommitResponse>(
+          `/api/v1/accounts/${accountId}/history-import/commit`,
+          { preview_id: previewId }
+        )
+      ).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["position-orders"] });
+      qc.invalidateQueries({ queryKey: ["positions"] });
+      qc.invalidateQueries({ queryKey: queryKeys.overview });
     },
   });
 }

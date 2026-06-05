@@ -22,6 +22,31 @@ _BITGET_LINEAR_PRODUCT = "USDT-FUTURES"
 _BITGET_INVERSE_PRODUCT = "COIN-FUTURES"
 _BITGET_INVERSE_MARGIN_FALLBACK = ("BTC", "ETH")
 
+# Bitget rejects history queries spanning more than 90 days, so callers must
+# slice longer ranges into windows no wider than this.
+_HISTORY_WINDOW_MS = 90 * 24 * 60 * 60 * 1000
+
+
+def _iter_time_windows(
+    since: Optional[int],
+    until: Optional[int],
+    window_ms: int = _HISTORY_WINDOW_MS,
+):
+    """Yield ``(since, until)`` slices no wider than ``window_ms`` (epoch ms).
+
+    When ``since`` or ``until`` is missing a single ``(since, until)`` window
+    is produced unchanged so connectors can fall back to their own defaults.
+    """
+
+    if since is None or until is None or since >= until:
+        yield (since, until)
+        return
+    start = since
+    while start < until:
+        end = min(start + window_ms, until)
+        yield (start, end)
+        start = end
+
 
 def bitget_fetch_params(exchange_name: str, default_sub_type: Optional[str]) -> dict[str, Any]:
     """Explicit Bitget ``productType`` for balance/position API calls."""
@@ -294,6 +319,77 @@ class CcxtExchangeClient(ExchangeClient):
             label=f"{self.exchange_name}.load_markets",
         )
         return self._parse_markets(markets or {})
+
+    def fetch_positions_history(
+        self,
+        *,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        symbols: Optional[list[str]] = None,
+    ) -> list[dict[str, Any]]:
+        if not getattr(self._client, "has", {}).get("fetchPositionsHistory"):
+            return []
+
+        out: list[dict[str, Any]] = []
+        for window_since, window_until in _iter_time_windows(since, until):
+            params = dict(self._fetch_params())
+            if window_until is not None:
+                params["until"] = window_until
+            try:
+                batch = call_with_retry(
+                    lambda s=window_since, p=params: self._client.fetch_positions_history(
+                        symbols, s, None, p
+                    ),
+                    label=f"{self.exchange_name}.fetch_positions_history",
+                )
+            except Exception as exc:
+                _logger.warning(
+                    "%s fetch_positions_history window skipped: %s",
+                    self.exchange_name,
+                    exc,
+                )
+                continue
+            out.extend(batch or [])
+        return out
+
+    def fetch_closed_orders_history(
+        self,
+        *,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        symbols: Optional[list[str]] = None,
+    ) -> list[dict[str, Any]]:
+        if not getattr(self._client, "has", {}).get("fetchClosedOrders"):
+            return []
+
+        # Bitget requires a symbol for contract order history; iterate the
+        # discovered symbols. A ``None`` symbol lets exchanges that support an
+        # account-wide query return everything in one pass.
+        target_symbols: list[Optional[str]] = list(symbols) if symbols else [None]
+
+        out: list[dict[str, Any]] = []
+        for symbol in target_symbols:
+            for window_since, window_until in _iter_time_windows(since, until):
+                params = dict(self._fetch_params())
+                if window_until is not None:
+                    params["until"] = window_until
+                try:
+                    batch = call_with_retry(
+                        lambda sym=symbol, s=window_since, p=params: self._client.fetch_closed_orders(
+                            sym, s, None, p
+                        ),
+                        label=f"{self.exchange_name}.fetch_closed_orders[{symbol}]",
+                    )
+                except Exception as exc:
+                    _logger.warning(
+                        "%s fetch_closed_orders symbol=%s window skipped: %s",
+                        self.exchange_name,
+                        symbol,
+                        exc,
+                    )
+                    continue
+                out.extend(batch or [])
+        return out
 
     def close(self) -> None:
         close_fn = getattr(self._client, "close", None)
