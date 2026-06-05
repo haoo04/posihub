@@ -1,4 +1,4 @@
-import { Card, Grid, Typography } from "antd";
+import { Card, Grid, Skeleton, Typography } from "antd";
 import type { ReactNode } from "react";
 
 const { Text } = Typography;
@@ -9,6 +9,7 @@ interface Props {
   value: ReactNode;
   hint?: ReactNode;
   accent?: "neutral" | "up" | "down" | "primary";
+  loading?: boolean;
 }
 
 const ACCENT_BAR: Record<NonNullable<Props["accent"]>, string> = {
@@ -18,7 +19,13 @@ const ACCENT_BAR: Record<NonNullable<Props["accent"]>, string> = {
   down: "linear-gradient(180deg, #dc2626 0%, #f97316 100%)",
 };
 
-export function KpiCard({ label, value, hint, accent = "primary" }: Props) {
+export function KpiCard({
+  label,
+  value,
+  hint,
+  accent = "primary",
+  loading = false,
+}: Props) {
   const screens = useBreakpoint();
   const mdUp = !!screens.md;
   return (
@@ -59,11 +66,19 @@ export function KpiCard({ label, value, hint, accent = "primary" }: Props) {
           color: "var(--posi-text)",
         }}
       >
-        {value}
+        {loading ? (
+          <Skeleton.Button active size="small" style={{ width: 96, height: 28 }} />
+        ) : (
+          value
+        )}
       </div>
       {hint !== undefined && (
         <div style={{ marginTop: 6, fontSize: 12, color: "var(--posi-text-muted)" }}>
-          {hint}
+          {loading ? (
+            <Skeleton.Button active size="small" style={{ width: 64, height: 14 }} />
+          ) : (
+            hint
+          )}
         </div>
       )}
     </Card>

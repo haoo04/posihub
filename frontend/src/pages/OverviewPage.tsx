@@ -69,6 +69,15 @@ export function OverviewPage() {
     };
   }, [pnl.data]);
 
+  const realizedTotal = useMemo(
+    () =>
+      (positions.data ?? []).reduce(
+        (sum, p) => sum + (p.realized_pnl ?? 0),
+        0
+      ),
+    [positions.data]
+  );
+
   const allocationOption = useMemo(() => {
     const top = (positions.data ?? [])
       .map((p) => ({
@@ -129,6 +138,7 @@ export function OverviewPage() {
         <Col xs={24} sm={12} lg={6}>
           <KpiCard
             label="总权益 (USDT)"
+            loading={overview.isLoading}
             value={fmtMoney(overview.data?.total_equity ?? 0)}
             hint={
               overview.data?.last_sync_at
@@ -141,13 +151,18 @@ export function OverviewPage() {
         <Col xs={24} sm={12} lg={6}>
           <KpiCard
             label="未实现盈亏"
+            loading={overview.isLoading || positions.isLoading}
             value={
               <PnlText
                 value={overview.data?.total_unrealized_pnl ?? 0}
                 weight={600}
               />
             }
-            hint="跨交易所聚合"
+            hint={
+              <span>
+                已实现 <PnlText value={realizedTotal} />
+              </span>
+            }
             accent={
               (overview.data?.total_unrealized_pnl ?? 0) >= 0 ? "up" : "down"
             }
@@ -156,6 +171,7 @@ export function OverviewPage() {
         <Col xs={24} sm={12} lg={6}>
           <KpiCard
             label="持仓数量"
+            loading={overview.isLoading}
             value={overview.data?.total_positions ?? 0}
             hint="按账户合计"
             accent="neutral"
@@ -164,6 +180,7 @@ export function OverviewPage() {
         <Col xs={24} sm={12} lg={6}>
           <KpiCard
             label="账户数量"
+            loading={overview.isLoading}
             value={overview.data?.total_accounts ?? 0}
             hint="含模拟账户"
             accent="neutral"
@@ -251,7 +268,7 @@ export function OverviewPage() {
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: isMobile ? 520 : undefined }}>
             <thead>
               <tr>
-                {["合约", "方向", "数量", "均价", "标记价", "未实现盈亏"].map(
+                {["合约", "方向", "数量", "均价", "标记价", "未实现盈亏", "已实现盈亏"].map(
                   (h) => (
                     <th
                       key={h}
@@ -298,6 +315,9 @@ export function OverviewPage() {
                   </td>
                   <td style={tdStyle}>
                     <PnlText value={p.unrealized_pnl} />
+                  </td>
+                  <td style={tdStyle}>
+                    <PnlText value={p.realized_pnl} />
                   </td>
                 </tr>
               ))}

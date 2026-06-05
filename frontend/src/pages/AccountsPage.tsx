@@ -58,6 +58,7 @@ export function AccountsPage() {
   const syncAccount = useSyncAccount();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [exchangeModalOpen, setExchangeModalOpen] = useState(false);
+  const [syncingAll, setSyncingAll] = useState(false);
   const [form] = Form.useForm<AccountCreate>();
   const [exchangeForm] = Form.useForm<{ name: string }>();
 
@@ -87,6 +88,34 @@ export function AccountsPage() {
       setExchangeModalOpen(false);
     } catch (e) {
       message.error((e as Error).message ?? "创建失败");
+    }
+  };
+
+  const onSyncAll = async () => {
+    const targets = (accounts.data ?? []).filter(
+      (a) => a.enabled && !a.is_simulated
+    );
+    if (!targets.length) {
+      message.info("没有可同步的真实账户");
+      return;
+    }
+    setSyncingAll(true);
+    let ok = 0;
+    let failed = 0;
+    // Sequential to avoid hitting exchange rate limits with many accounts.
+    for (const acc of targets) {
+      try {
+        const res = await syncAccount.mutateAsync(acc.id);
+        res.success ? (ok += 1) : (failed += 1);
+      } catch {
+        failed += 1;
+      }
+    }
+    setSyncingAll(false);
+    if (failed === 0) {
+      message.success(`已同步 ${ok} 个账户`);
+    } else {
+      message.warning(`同步完成：成功 ${ok}，失败 ${failed}`);
     }
   };
 
@@ -151,20 +180,40 @@ export function AccountsPage() {
             ? "error"
             : "idle";
         return (
-          <Space size={6}>
-            <StatusDot status={status} />
-            {row.last_sync_at ? (
-              <RelativeTime value={row.last_sync_at} style={{ fontSize: 13 }} />
-            ) : (
-              <Text type="secondary" style={{ fontSize: 13 }}>
-                未同步
-              </Text>
-            )}
-            {row.consecutive_failures > 0 && (
-              <Tooltip title={row.last_sync_error ?? ""}>
+          <Space direction="vertical" size={2}>
+            <Space size={6}>
+              <StatusDot status={status} />
+              {row.last_sync_at ? (
+                <RelativeTime
+                  value={row.last_sync_at}
+                  style={{ fontSize: 13 }}
+                />
+              ) : (
+                <Text type="secondary" style={{ fontSize: 13 }}>
+                  未同步
+                </Text>
+              )}
+              {row.consecutive_failures > 0 && (
                 <Tag color="red" style={{ margin: 0 }}>
                   失败 × {row.consecutive_failures}
                 </Tag>
+              )}
+            </Space>
+            {row.last_sync_status === "error" && row.last_sync_error && (
+              <Tooltip title={row.last_sync_error}>
+                <Text
+                  type="danger"
+                  style={{
+                    fontSize: 12,
+                    maxWidth: 260,
+                    display: "inline-block",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {row.last_sync_error}
+                </Text>
               </Tooltip>
             )}
           </Space>
@@ -223,6 +272,13 @@ export function AccountsPage() {
               onClick={() => accounts.refetch()}
             >
               刷新
+            </Button>
+            <Button
+              icon={<SyncOutlined />}
+              loading={syncingAll}
+              onClick={onSyncAll}
+            >
+              全部同步
             </Button>
             <Button onClick={() => setExchangeModalOpen(true)}>
               新增交易所

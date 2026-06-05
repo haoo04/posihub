@@ -13,9 +13,12 @@ import {
   AppstoreOutlined,
   BankOutlined,
   EditOutlined,
+  HistoryOutlined,
   LineChartOutlined,
   MenuOutlined,
   PieChartOutlined,
+  SettingOutlined,
+  TagsOutlined,
 } from "@ant-design/icons";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { StatusDot } from "./StatusDot";
@@ -32,7 +35,10 @@ const NAV = [
   { key: "/accounts", label: "账户", icon: <BankOutlined /> },
   { key: "/positions", label: "仓位", icon: <PieChartOutlined /> },
   { key: "/pnl", label: "盈亏", icon: <LineChartOutlined /> },
+  { key: "/snapshots", label: "历史快照", icon: <HistoryOutlined /> },
+  { key: "/symbols", label: "Symbol 映射", icon: <TagsOutlined /> },
   { key: "/manual", label: "手动录入", icon: <EditOutlined /> },
+  { key: "/settings", label: "设置", icon: <SettingOutlined /> },
 ];
 
 export function AppLayout() {

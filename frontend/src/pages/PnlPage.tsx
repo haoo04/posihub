@@ -1,5 +1,14 @@
 import { useMemo, useState } from "react";
-import { Card, Segmented, Space, Statistic, Typography } from "antd";
+import {
+  Button,
+  Card,
+  Segmented,
+  Skeleton,
+  Space,
+  Statistic,
+  Typography,
+} from "antd";
+import { Link } from "react-router-dom";
 import ReactECharts from "echarts-for-react";
 import { PageHeader } from "@/components/PageHeader";
 import { AsyncBoundary } from "@/components/AsyncBoundary";
@@ -154,6 +163,7 @@ export function PnlPage() {
         <Card bodyStyle={{ padding: 16 }} style={{ borderRadius: 12 }}>
           <Statistic
             title="期初权益"
+            loading={pnl.isLoading}
             value={stats.first}
             precision={2}
             suffix=" USDT"
@@ -162,6 +172,7 @@ export function PnlPage() {
         <Card bodyStyle={{ padding: 16 }} style={{ borderRadius: 12 }}>
           <Statistic
             title="当前权益"
+            loading={pnl.isLoading}
             value={stats.last}
             precision={2}
             suffix=" USDT"
@@ -180,21 +191,26 @@ export function PnlPage() {
             区间盈亏
           </Text>
           <div style={{ marginTop: 8, fontSize: 22 }}>
-            <PnlText value={stats.change} weight={600} />
+            {pnl.isLoading ? (
+              <Skeleton.Button active size="small" style={{ width: 96, height: 24 }} />
+            ) : (
+              <PnlText value={stats.change} weight={600} />
+            )}
           </div>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            {(stats.changePct * 100).toFixed(2)}%
+            {pnl.isLoading ? "—" : `${(stats.changePct * 100).toFixed(2)}%`}
           </Text>
         </Card>
         <Card bodyStyle={{ padding: 16 }} style={{ borderRadius: 12 }}>
           <Statistic
             title="区间峰值"
+            loading={pnl.isLoading}
             value={stats.peak}
             precision={2}
             suffix=" USDT"
           />
           <Text type="secondary" style={{ fontSize: 12 }}>
-            谷值 {fmtMoney(stats.trough)}
+            {pnl.isLoading ? "谷值 —" : `谷值 ${fmtMoney(stats.trough)}`}
           </Text>
         </Card>
       </div>
@@ -208,7 +224,21 @@ export function PnlPage() {
           loading={pnl.isLoading}
           error={pnl.error}
           empty={!points.length}
-          emptyText="暂无数据，等待每日快照生成或从「手动录入」补录"
+          emptyText={
+            <Space direction="vertical" align="center" size={12}>
+              <Text type="secondary">
+                暂无数据，等待每日快照生成或从「手动录入」补录
+              </Text>
+              <Space>
+                <Link to="/accounts">
+                  <Button type="primary">去同步账户</Button>
+                </Link>
+                <Link to="/manual">
+                  <Button>手动录入</Button>
+                </Link>
+              </Space>
+            </Space>
+          }
         >
           <ReactECharts
             theme="posi-light"
