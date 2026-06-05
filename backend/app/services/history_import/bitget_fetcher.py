@@ -33,6 +33,31 @@ def _resolve_canonical(
     return resolved.canonical if resolved is not None else None
 
 
+def _discover_symbols_from_open_positions(client: ExchangeClient) -> set[str]:
+    """Seed symbol discovery from **current** open positions.
+
+    Bitget history endpoints require an explicit ``symbol``. Closed-position
+    history only lists contracts that fully closed inside the query window, so
+    an still-open leg like SPY is omitted and its fills/orders are never
+    fetched when other symbols already populated ``discovered_symbols``.
+    """
+
+    symbols: set[str] = set()
+    try:
+        for pos in client.fetch_positions():
+            if pos.raw_symbol:
+                symbols.add(pos.raw_symbol)
+    except Exception as exc:
+        _logger.warning("open position symbol discovery skipped: %s", exc)
+    if symbols:
+        _logger.info(
+            "discovered %d symbol(s) from open positions: %s",
+            len(symbols),
+            ", ".join(sorted(symbols)),
+        )
+    return symbols
+
+
 def _ms_to_naive_utc(ms: int) -> datetime:
     return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).replace(tzinfo=None)
 
@@ -148,9 +173,10 @@ def fetch_bitget_history(
     from ``fetchMyTrades`` (and optionally ``fetchOrder``).
     """
 
+    discovered_symbols = _discover_symbols_from_open_positions(client)
+
     raw_positions = client.fetch_positions_history(since=since_ms, until=until_ms)
     closed_positions: list[ClosedPositionSummary] = []
-    discovered_symbols: set[str] = set()
     for raw in raw_positions:
         summary = normalize_bitget_closed_position(raw)
         if summary is None:
