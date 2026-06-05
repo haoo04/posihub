@@ -181,6 +181,13 @@ class PositionOrder(SQLModel, table=True):
     allowing for order-level risk and PnL calculation.
     """
     __tablename__ = "position_orders"
+    __table_args__ = (
+        UniqueConstraint(
+            "position_id",
+            "source_order_id",
+            name="uq_position_order_position_source_order",
+        ),
+    )
 
     id: Optional[int] = Field(default=None, primary_key=True)
     position_id: int = Field(foreign_key="positions_current.id", index=True)
@@ -217,6 +224,13 @@ class PositionCloseExecution(SQLModel, table=True):
     """
 
     __tablename__ = "position_close_executions"
+    __table_args__ = (
+        UniqueConstraint(
+            "position_id",
+            "source_order_id",
+            name="uq_close_execution_position_source_order",
+        ),
+    )
 
     id: Optional[int] = Field(default=None, primary_key=True)
     position_id: int = Field(foreign_key="positions_current.id", index=True)
@@ -324,3 +338,26 @@ class ManualEntry(SQLModel, table=True):
     payload_json: str = Field(default="{}")
     operator: str = Field(default="local", max_length=64)
     created_at: datetime = Field(default_factory=_utcnow)
+
+
+# ---------------------------------------------------------------------------
+# History import preview cache
+# ---------------------------------------------------------------------------
+
+
+class HistoryImportPreview(SQLModel, table=True):
+    """Server-side cache for a history-import preview.
+
+    The exchange is queried only during the preview step; the normalised
+    orders are stored here so the subsequent ``commit`` is deterministic and
+    re-classified against the live database without touching the network.
+    """
+
+    __tablename__ = "history_import_previews"
+
+    id: str = Field(primary_key=True, max_length=64)  # UUID hex
+    account_id: int = Field(foreign_key="accounts.id", index=True)
+    payload_json: str = Field(default="{}")
+    created_at: datetime = Field(default_factory=_utcnow)
+    expires_at: datetime = Field(default_factory=_utcnow, index=True)
+    committed_at: Optional[datetime] = Field(default=None)

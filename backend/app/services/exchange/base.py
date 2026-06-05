@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 
 @dataclass(slots=True)
@@ -70,6 +70,63 @@ class ExchangeClient(ABC):
         """Return last/mark prices for CCXT-style symbols (e.g. ``BTC/USDT``)."""
 
         return {}
+
+    def fetch_closed_orders_history(
+        self,
+        *,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        symbols: Optional[list[str]] = None,
+    ) -> list[dict[str, Any]]:
+        """Return raw filled/closed order dicts in ``[since, until]`` (ms).
+
+        Default no-op; only connectors that support order history override
+        this. Returned dicts are exchange-native CCXT order structures so the
+        per-exchange normalisation layer can read raw fields.
+        """
+
+        return []
+
+    def fetch_positions_history(
+        self,
+        *,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        symbols: Optional[list[str]] = None,
+    ) -> list[dict[str, Any]]:
+        """Return raw closed-position dicts in ``[since, until]`` (ms).
+
+        Default no-op; overridden by connectors that expose a positions
+        history endpoint. Used for import validation, not as the source of
+        truth for the order ledger.
+        """
+
+        return []
+
+    def fetch_my_trades_history(
+        self,
+        *,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        symbols: Optional[list[str]] = None,
+    ) -> list[dict[str, Any]]:
+        """Return raw fill/trade dicts in ``[since, until]`` (ms).
+
+        Used to resolve per-order execution timestamps. Default no-op;
+        connectors with trade history override this.
+        """
+
+        return []
+
+    def fetch_order(
+        self,
+        order_id: str,
+        *,
+        symbol: str,
+    ) -> Optional[dict[str, Any]]:
+        """Return a single order by exchange id (for backfill gap recovery)."""
+
+        return None
 
     def fetch_all(self) -> FetchResult:
         """Convenience helper combining balance + positions."""

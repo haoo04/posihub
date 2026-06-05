@@ -11,6 +11,7 @@ from . import __version__
 from .api import (
     routes_accounts,
     routes_health,
+    routes_history_import,
     routes_manual,
     routes_overview,
     routes_pnl,
@@ -64,6 +65,7 @@ def create_app() -> FastAPI:
     app.include_router(routes_health.router)
     app.include_router(routes_overview.router)
     app.include_router(routes_accounts.router)
+    app.include_router(routes_history_import.router)
     app.include_router(routes_positions.router)
     app.include_router(routes_position_orders.router)
     app.include_router(routes_pnl.router)

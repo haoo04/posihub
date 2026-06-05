@@ -285,3 +285,80 @@ export interface FifoCloseResponse {
   affected_orders: PositionOrderRead[];
   realized_pnl: number;
 }
+
+export type ImportDedupStatus =
+  | "new"
+  | "skip_exists"
+  | "conflict"
+  | "orphan_close";
+
+export interface HistoryImportPreviewRequest {
+  since: string;
+  until: string;
+}
+
+export interface PlannedMatchRead {
+  open_source_order_id: string | null;
+  open_local_order_id: number | null;
+  matched_qty: number;
+  open_price: number;
+  close_price: number;
+  realized_pnl: number;
+}
+
+export interface OrderPreviewRead {
+  source_order_id: string;
+  raw_symbol: string;
+  canonical_symbol: string | null;
+  side: string;
+  action: "open" | "close";
+  qty: number;
+  price: number;
+  created_at: string;
+  order_placed_at: string | null;
+  dedup_status: ImportDedupStatus;
+  realized_pnl: number | null;
+  matches: PlannedMatchRead[];
+  note: string | null;
+}
+
+export interface ClosedPositionSummaryRead {
+  raw_symbol: string;
+  canonical_symbol: string | null;
+  side: string;
+  close_qty: number;
+  entry_price: number;
+  close_price: number;
+  realized_pnl: number;
+  open_time: string | null;
+  close_time: string | null;
+}
+
+export interface ImportSummaryRead {
+  total_fetched: number;
+  new_opens: number;
+  new_closes: number;
+  skipped: number;
+  conflicts: number;
+  orphans: number;
+  pnl_validation_warnings: number;
+}
+
+export interface HistoryImportPreviewResponse {
+  preview_id: string;
+  account_id: number;
+  fetched_at: string;
+  orders: OrderPreviewRead[];
+  closed_positions: ClosedPositionSummaryRead[];
+  summary: ImportSummaryRead;
+  blockers: string[];
+}
+
+export interface HistoryImportCommitResponse {
+  account_id: number;
+  created_opens: number;
+  created_closes: number;
+  skipped: number;
+  conflicts: number;
+  orphans: number;
+}

@@ -18,6 +18,7 @@ import {
 } from "antd";
 import {
   DeleteOutlined,
+  HistoryOutlined,
   PlusOutlined,
   ReloadOutlined,
   SyncOutlined,
@@ -25,6 +26,7 @@ import {
 import { PageHeader } from "@/components/PageHeader";
 import { StatusDot } from "@/components/StatusDot";
 import { AsyncBoundary } from "@/components/AsyncBoundary";
+import { HistoryImportModal } from "@/components/HistoryImportModal";
 import RelativeTime from "@/components/RelativeTime";
 import {
   useAccounts,
@@ -59,6 +61,7 @@ export function AccountsPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [exchangeModalOpen, setExchangeModalOpen] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
+  const [historyAccount, setHistoryAccount] = useState<Account | null>(null);
   const [form] = Form.useForm<AccountCreate>();
   const [exchangeForm] = Form.useForm<{ name: string }>();
 
@@ -246,6 +249,17 @@ export function AccountsPage() {
           >
             同步
           </Button>
+          {(row.account_type === "usdt_perp" ||
+            row.account_type === "coin_perp") &&
+          !row.is_simulated ? (
+            <Button
+              size="small"
+              icon={<HistoryOutlined />}
+              onClick={() => setHistoryAccount(row)}
+            >
+              历史回填
+            </Button>
+          ) : null}
           <Popconfirm
             title="确认删除该账户？"
             okText="删除"
@@ -311,6 +325,12 @@ export function AccountsPage() {
           />
         </AsyncBoundary>
       </Card>
+
+      <HistoryImportModal
+        open={historyAccount !== null}
+        account={historyAccount}
+        onClose={() => setHistoryAccount(null)}
+      />
 
       <Drawer
         title="新建账户"
