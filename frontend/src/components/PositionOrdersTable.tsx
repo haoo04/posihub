@@ -840,8 +840,13 @@ export function PositionOrdersTable({
   const { isMobile } = useBreakpoint();
   const queryClient = useQueryClient();
   const { data: orders, isLoading, error } = usePositionOrders(positionId);
-  const { data: matches, isLoading: matchesLoading } =
-    usePositionMatches(positionId);
+  // Matches only exist for orders that have been (partially) closed. Skip the
+  // request entirely when every order is still fully open (the common case).
+  const needsMatches = (orders ?? []).some((o) => o.status !== "open");
+  const { data: matches, isLoading: matchesLoading } = usePositionMatches(
+    positionId,
+    needsMatches
+  );
   const deleteMutation = useDeletePositionOrder();
 
   const matchesByOrderId = useMemo(

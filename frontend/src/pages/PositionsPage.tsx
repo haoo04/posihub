@@ -11,6 +11,7 @@ import {
   Table,
   Typography,
 } from "antd";
+import type { ColumnsType } from "antd/es/table";
 import { ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import { PageHeader } from "@/components/PageHeader";
 import { AsyncBoundary } from "@/components/AsyncBoundary";
@@ -54,6 +55,7 @@ export function PositionsPage() {
   const [keyword, setKeyword] = useState("");
   const accounts = useAccounts();
   const positions = usePositions(view, market);
+  const accountsLoading = accounts.isLoading;
 
   const isSpot = market === "spot";
 
@@ -88,21 +90,32 @@ export function PositionsPage() {
 
   const filteredData = useMemo(() => {
     const list = positions.data ?? [];
-    if (!keyword) return list;
     const k = keyword.toUpperCase();
     if (view === "split") {
-      return (list as PositionSplit[]).filter((p) =>
-        `${p.canonical_symbol} ${accountMap.get(p.account_id) ?? ""}`
-          .toUpperCase()
-          .includes(k)
+      const rows = (list as PositionSplit[]).filter(
+        (p) =>
+          !k ||
+          `${p.canonical_symbol} ${accountMap.get(p.account_id) ?? ""}`
+            .toUpperCase()
+            .includes(k)
       );
+      // Stable ordering: symbol, then account name, so multi-account lists
+      // don't reshuffle on every refetch.
+      return [...rows].sort((a, b) => {
+        const sym = a.canonical_symbol.localeCompare(b.canonical_symbol);
+        if (sym !== 0) return sym;
+        const an = accountMap.get(a.account_id) ?? `#${a.account_id}`;
+        const bn = accountMap.get(b.account_id) ?? `#${b.account_id}`;
+        return an.localeCompare(bn);
+      });
     }
-    return (list as PositionMerged[]).filter((p) =>
-      p.canonical_symbol.toUpperCase().includes(k)
+    // Merged view is already sorted/filtered server-side; only apply search.
+    return (list as PositionMerged[]).filter(
+      (p) => !k || p.canonical_symbol.toUpperCase().includes(k)
     );
   }, [positions.data, keyword, accountMap, view]);
 
-  const splitColumns = useMemo(
+  const splitColumns = useMemo<ColumnsType<PositionSplit>>(
     () => [
       {
         title: isSpot ? "交易对" : "合约",
@@ -113,7 +126,9 @@ export function PositionsPage() {
         title: "账户",
         dataIndex: "account_id",
         render: (v: number) => (
-          <Text type="secondary">{accountMap.get(v) ?? `#${v}`}</Text>
+          <Text type="secondary">
+            {accountMap.get(v) ?? (accountsLoading ? "…" : `#${v}`)}
+          </Text>
         ),
       },
       ...(!isSpot
@@ -195,7 +210,7 @@ export function PositionsPage() {
               ),
             },
             {
-              title: "保证金",
+              title: "保证金模式",
               dataIndex: "margin_mode",
               align: "right" as const,
               render: (v: string | null) => (
@@ -215,10 +230,10 @@ export function PositionsPage() {
         ),
       },
     ],
-    [accountMap, isSpot]
+    [accountMap, isSpot, accountsLoading]
   );
 
-  const mergedColumns = useMemo(
+  const mergedColumns = useMemo<ColumnsType<PositionMerged>>(
     () => [
       {
         title: isSpot ? "交易对" : "合约",
@@ -297,7 +312,6 @@ export function PositionsPage() {
   );
 
   const isSplit = view === "split";
-  const columns = isSplit ? splitColumns : mergedColumns;
   const emptyText = isSpot
     ? "暂无现货持仓，请确认已添加现货账户并完成同步"
     : "暂无合约持仓";
@@ -393,7 +407,7 @@ export function PositionsPage() {
           {!isSpot && (
             <Col span={12}>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                杠杆 / 保证金
+                杠杆 / 模式
               </Text>
               <div>
                 <span className="posi-numeric">{position.leverage}x</span>
@@ -424,6 +438,7 @@ export function PositionsPage() {
         <Collapse
           ghost
           size="small"
+          destroyInactivePanel
           items={[
             {
               key: "orders",
@@ -560,6 +575,7 @@ export function PositionsPage() {
             />
             <Button
               icon={<ReloadOutlined />}
+              loading={positions.isFetching}
               onClick={() => positions.refetch()}
             >
               刷新
@@ -609,26 +625,34 @@ export function PositionsPage() {
             empty={!filteredData.length}
             emptyText={emptyText}
           >
-            <Table
-              rowKey={isSplit ? "id" : "canonical_symbol"}
-              columns={columns as never}
-              dataSource={filteredData as never}
-              pagination={{ pageSize: 20, hideOnSinglePage: true }}
-              size="middle"
-              expandable={
-                isSplit
-                  ? {
-                      expandedRowRender: (record: PositionSplit) => (
-                        <PositionOrdersTable
-                          positionId={record.id}
-                          {...orderTableProps(record)}
-                        />
-                      ),
-                      rowExpandable: () => true,
-                    }
-                  : undefined
-              }
-            />
+            {isSplit ? (
+              <Table<PositionSplit>
+                rowKey="id"
+                columns={splitColumns}
+                dataSource={filteredData as PositionSplit[]}
+                loading={positions.isFetching && !positions.isLoading}
+                pagination={{ pageSize: 20, hideOnSinglePage: true }}
+                size="middle"
+                expandable={{
+                  expandedRowRender: (record) => (
+                    <PositionOrdersTable
+                      positionId={record.id}
+                      {...orderTableProps(record)}
+                    />
+                  ),
+                  rowExpandable: () => true,
+                }}
+              />
+            ) : (
+              <Table<PositionMerged>
+                rowKey="canonical_symbol"
+                columns={mergedColumns}
+                dataSource={filteredData as PositionMerged[]}
+                loading={positions.isFetching && !positions.isLoading}
+                pagination={{ pageSize: 20, hideOnSinglePage: true }}
+                size="middle"
+              />
+            )}
           </AsyncBoundary>
         </Card>
       )}

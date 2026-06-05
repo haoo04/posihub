@@ -13,6 +13,7 @@ import type {
   AccountSyncStatus,
   Exchange,
   FifoCloseResponse,
+  Health,
   ManualSnapshotCreate,
   ManualSnapshotResult,
   Overview,
@@ -32,6 +33,7 @@ import type {
 } from "./types";
 
 export const queryKeys = {
+  health: ["health"] as const,
   overview: ["overview"] as const,
   exchanges: ["exchanges"] as const,
   accounts: ["accounts"] as const,
@@ -50,6 +52,17 @@ export const queryKeys = {
     ["snapshots", "positions", params] as const,
   symbols: ["symbols"] as const,
 };
+
+export function useHealth(
+  options?: Omit<UseQueryOptions<Health>, "queryKey" | "queryFn">
+) {
+  return useQuery({
+    queryKey: queryKeys.health,
+    queryFn: async () => (await http.get<Health>("/health")).data,
+    staleTime: 60_000,
+    ...options,
+  });
+}
 
 export function useOverview(
   options?: Omit<UseQueryOptions<Overview>, "queryKey" | "queryFn">
@@ -157,6 +170,7 @@ export function usePositions<V extends "split" | "merged">(
       );
       return resp.data;
     },
+    placeholderData: (previous) => previous,
   });
 }
 
@@ -244,6 +258,41 @@ export function useSymbols() {
     queryKey: queryKeys.symbols,
     queryFn: async () =>
       (await http.get<SymbolMapping[]>("/api/v1/symbols")).data,
+  });
+}
+
+export interface SymbolMappingPatch {
+  canonical_symbol?: string;
+  base_asset?: string;
+  quote_asset?: string;
+  instrument_type?: SymbolMapping["instrument_type"];
+  contract_size?: number;
+  is_active?: boolean;
+}
+
+export function useUpdateSymbol() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      patch,
+    }: {
+      id: number;
+      patch: SymbolMappingPatch;
+    }) =>
+      (await http.patch<SymbolMapping>(`/api/v1/symbols/${id}`, patch)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.symbols }),
+  });
+}
+
+export function useDeleteSymbol() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await http.delete(`/api/v1/symbols/${id}`);
+      return id;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.symbols }),
   });
 }
 
