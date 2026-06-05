@@ -109,9 +109,16 @@ export function HistoryImportModal({ open, account, onClose }: Props) {
 
   const orderColumns: ColumnsType<OrderPreviewRead> = [
     {
-      title: "时间",
+      title: "成交时间",
       dataIndex: "created_at",
-      render: (v: string) => fmtDateTime(v),
+      render: (v: string, row) => (
+        <Space direction="vertical" size={0}>
+          <span>{fmtDateTime(v)}</span>
+          {row.order_placed_at && row.order_placed_at !== v ? (
+            <Text type="secondary">委托 {fmtDateTime(row.order_placed_at)}</Text>
+          ) : null}
+        </Space>
+      ),
     },
     {
       title: "交易对",

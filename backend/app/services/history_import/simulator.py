@@ -178,6 +178,7 @@ def simulate(
                 qty=order.qty,
                 price=order.price,
                 created_at=order.created_at,
+                order_placed_at=order.order_placed_at,
                 dedup_status=DedupStatus.NEW,
                 realized_pnl=order.realized_pnl,
             )

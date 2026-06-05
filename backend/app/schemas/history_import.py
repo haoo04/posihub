@@ -34,6 +34,7 @@ class OrderPreviewRead(APIModel):
     price: float
     created_at: datetime
     dedup_status: str
+    order_placed_at: Optional[datetime] = None
     realized_pnl: Optional[float] = None
     matches: list[PlannedMatchRead] = []
     note: Optional[str] = None

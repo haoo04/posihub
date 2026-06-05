@@ -29,6 +29,7 @@ def order_to_dict(order: NormalizedHistoryOrder) -> dict[str, Any]:
         "qty": order.qty,
         "price": order.price,
         "created_at": _dt_to_iso(order.created_at),
+        "order_placed_at": _dt_to_iso(order.order_placed_at),
         "realized_pnl": order.realized_pnl,
         "margin_mode": order.margin_mode,
     }
@@ -44,6 +45,7 @@ def order_from_dict(data: dict[str, Any]) -> NormalizedHistoryOrder:
         qty=float(data["qty"]),
         price=float(data["price"]),
         created_at=_iso_to_dt(data["created_at"]),
+        order_placed_at=_iso_to_dt(data.get("order_placed_at")),
         realized_pnl=data.get("realized_pnl"),
         margin_mode=data.get("margin_mode"),
     )

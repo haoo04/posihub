@@ -391,6 +391,66 @@ class CcxtExchangeClient(ExchangeClient):
                 out.extend(batch or [])
         return out
 
+    def fetch_my_trades_history(
+        self,
+        *,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        symbols: Optional[list[str]] = None,
+    ) -> list[dict[str, Any]]:
+        if not getattr(self._client, "has", {}).get("fetchMyTrades"):
+            return []
+
+        target_symbols: list[Optional[str]] = list(symbols) if symbols else [None]
+
+        out: list[dict[str, Any]] = []
+        for symbol in target_symbols:
+            for window_since, window_until in _iter_time_windows(since, until):
+                params = dict(self._fetch_params())
+                if window_until is not None:
+                    params["until"] = window_until
+                try:
+                    batch = call_with_retry(
+                        lambda sym=symbol, s=window_since, p=params: self._client.fetch_my_trades(
+                            sym, s, None, p
+                        ),
+                        label=f"{self.exchange_name}.fetch_my_trades[{symbol}]",
+                    )
+                except Exception as exc:
+                    _logger.warning(
+                        "%s fetch_my_trades symbol=%s window skipped: %s",
+                        self.exchange_name,
+                        symbol,
+                        exc,
+                    )
+                    continue
+                out.extend(batch or [])
+        return out
+
+    def fetch_order(
+        self,
+        order_id: str,
+        *,
+        symbol: str,
+    ) -> Optional[dict[str, Any]]:
+        if not getattr(self._client, "has", {}).get("fetchOrder"):
+            return None
+        params = self._fetch_params()
+        try:
+            return call_with_retry(
+                lambda: self._client.fetch_order(order_id, symbol, params),
+                label=f"{self.exchange_name}.fetch_order[{order_id}]",
+            )
+        except Exception as exc:
+            _logger.debug(
+                "%s fetch_order id=%s symbol=%s skipped: %s",
+                self.exchange_name,
+                order_id,
+                symbol,
+                exc,
+            )
+            return None
+
     def close(self) -> None:
         close_fn = getattr(self._client, "close", None)
         if callable(close_fn):

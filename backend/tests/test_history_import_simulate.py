@@ -132,6 +132,24 @@ def test_conflict_on_price_mismatch() -> None:
     assert result.orders[0].dedup_status == DedupStatus.CONFLICT
 
 
+def test_fill_time_ordering_prevents_orphan_close() -> None:
+    """Close placed before open, but filled after open fill -> not orphan."""
+
+    # Open: placed T+0, filled T+2. Close: placed T+1, filled T+3.
+    orders = [
+        _order("o1", ImportAction.OPEN, 1.0, 2000.0, minute=0),
+        _order("c1", ImportAction.CLOSE, 1.0, 2100.0, minute=1),
+    ]
+    orders[0].created_at = _BASE + timedelta(minutes=2)
+    orders[1].created_at = _BASE + timedelta(minutes=3)
+
+    result = simulate(orders, LocalState())
+    close = next(o for o in result.orders if o.source_order_id == "c1")
+    assert close.dedup_status == DedupStatus.NEW
+    assert result.summary.orphans == 0
+    assert len(close.matches) == 1
+
+
 def test_unmapped_symbol_is_blocker() -> None:
     orders = [_order("o1", ImportAction.OPEN, 1.0, 2000.0, canonical=None)]
     result = simulate(orders, LocalState())

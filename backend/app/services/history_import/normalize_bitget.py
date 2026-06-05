@@ -8,11 +8,21 @@ Symbol resolution to a canonical key happens later in the fetcher, where a
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 from ...db.models import PositionSide
 from .types import ImportAction, NormalizedHistoryOrder, ClosedPositionSummary
+
+
+@dataclass(slots=True)
+class TradeIndex:
+    """Per-order aggregates derived from ``fetchMyTrades`` rows."""
+
+    fill_times: dict[str, datetime] = field(default_factory=dict)
+    symbols: dict[str, str] = field(default_factory=dict)
+    trades_by_order: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
 
 def _ms_to_naive_utc(value: Any) -> Optional[datetime]:
@@ -109,7 +119,146 @@ def parse_bitget_direction(
     return action, position_side
 
 
-def normalize_bitget_order(raw: dict[str, Any]) -> Optional[NormalizedHistoryOrder]:
+def _trade_fill_timestamp(raw: dict[str, Any]) -> Optional[datetime]:
+    info = raw.get("info") if isinstance(raw.get("info"), dict) else {}
+    return (
+        _ms_to_naive_utc(raw.get("timestamp"))
+        or _ms_to_naive_utc(info.get("fillTime"))
+        or _ms_to_naive_utc(info.get("cTime"))
+    )
+
+
+def build_order_trade_index(raw_trades: list[dict[str, Any]]) -> TradeIndex:
+    """Index trades by order id (fill time, symbol, raw rows).
+
+    FIFO matching must use execution time, not order placement time. When an
+    order has multiple partial fills we take the **latest** trade timestamp as
+    the point at which that order leg completed.
+    """
+
+    index = TradeIndex()
+    for raw in raw_trades:
+        if not isinstance(raw, dict):
+            continue
+        info = raw.get("info") if isinstance(raw.get("info"), dict) else {}
+        order_id = raw.get("order") or info.get("orderId")
+        if order_id is None:
+            continue
+        key = str(order_id)
+        ts = _trade_fill_timestamp(raw)
+        if ts is not None:
+            existing = index.fill_times.get(key)
+            if existing is None or ts > existing:
+                index.fill_times[key] = ts
+        symbol = raw.get("symbol") or info.get("symbol")
+        if symbol and key not in index.symbols:
+            index.symbols[key] = str(symbol)
+        index.trades_by_order.setdefault(key, []).append(raw)
+    return index
+
+
+def build_order_fill_times(raw_trades: list[dict[str, Any]]) -> dict[str, datetime]:
+    """Backward-compatible wrapper around :func:`build_order_trade_index`."""
+
+    return build_order_trade_index(raw_trades).fill_times
+
+
+def aggregate_bitget_trades_to_order_raw(
+    order_id: str,
+    trades: list[dict[str, Any]],
+) -> Optional[dict[str, Any]]:
+    """Synthesize a CCXT-like order dict from fill rows.
+
+    Used when ``fetchClosedOrders`` omits an order because its **placement**
+    time precedes the query window, even though its **fill** time falls inside
+    the window the user selected.
+    """
+
+    if not trades:
+        return None
+
+    total_qty = 0.0
+    notional = 0.0
+    symbol: Optional[str] = None
+    side: Optional[str] = None
+    trade_side: Optional[str] = None
+    pos_side: Optional[str] = None
+    reduce_only: Optional[bool] = None
+    margin_mode: Optional[str] = None
+    realized_pnl = 0.0
+    has_close_pnl = False
+    earliest_place: Optional[datetime] = None
+
+    for raw in trades:
+        if not isinstance(raw, dict):
+            continue
+        info = raw.get("info") if isinstance(raw.get("info"), dict) else {}
+        qty = (
+            _to_float(raw.get("amount"))
+            or _to_float(info.get("baseVolume"))
+            or _to_float(info.get("fillQuantity"))
+            or _to_float(info.get("size"))
+        )
+        price = (
+            _to_float(raw.get("price"))
+            or _to_float(info.get("price"))
+            or _to_float(info.get("fillPrice"))
+        )
+        if qty is None or qty <= 0 or price is None or price <= 0:
+            continue
+        total_qty += qty
+        notional += qty * price
+        symbol = symbol or raw.get("symbol") or info.get("symbol")
+        side = side or raw.get("side") or info.get("side")
+        trade_side = trade_side or info.get("tradeSide")
+        pos_side = pos_side or info.get("posSide") or info.get("holdSide")
+        if reduce_only is None and raw.get("reduceOnly") is not None:
+            reduce_only = bool(raw.get("reduceOnly"))
+        margin_mode = margin_mode or raw.get("marginMode") or info.get("marginMode")
+        pnl = _to_float(info.get("profit")) or _to_float(info.get("totalProfits"))
+        if pnl is not None:
+            realized_pnl += pnl
+            has_close_pnl = True
+        placed = _ms_to_naive_utc(info.get("cTime"))
+        if placed is not None and (earliest_place is None or placed < earliest_place):
+            earliest_place = placed
+
+    if total_qty <= 0 or not symbol:
+        return None
+
+    avg_price = notional / total_qty
+    info: dict[str, Any] = {
+        "orderId": order_id,
+        "symbol": symbol,
+        "tradeSide": trade_side,
+        "posSide": pos_side,
+        "side": side,
+        "baseVolume": total_qty,
+        "priceAvg": avg_price,
+        "marginMode": margin_mode,
+    }
+    if earliest_place is not None:
+        info["cTime"] = int(earliest_place.timestamp() * 1000)
+    if has_close_pnl:
+        info["totalProfits"] = realized_pnl
+
+    return {
+        "id": order_id,
+        "symbol": symbol,
+        "side": side,
+        "filled": total_qty,
+        "average": avg_price,
+        "reduceOnly": reduce_only,
+        "marginMode": margin_mode,
+        "info": info,
+    }
+
+
+def normalize_bitget_order(
+    raw: dict[str, Any],
+    *,
+    fill_time: Optional[datetime] = None,
+) -> Optional[NormalizedHistoryOrder]:
     """Convert a CCXT Bitget order dict into a :class:`NormalizedHistoryOrder`.
 
     Returns ``None`` for unfilled / undeterminable orders so callers can skip
@@ -155,10 +304,16 @@ def normalize_bitget_order(raw: dict[str, Any]) -> Optional[NormalizedHistoryOrd
         return None
     action, position_side = direction
 
+    order_placed_at = (
+        _ms_to_naive_utc(info.get("cTime"))
+        or _ms_to_naive_utc(raw.get("timestamp"))
+    )
+    # ``created_at`` is the FIFO sort key: prefer trade fill time, then the
+    # order update time (closer to fill), then placement time.
     created_at = (
-        _ms_to_naive_utc(raw.get("timestamp"))
-        or _ms_to_naive_utc(info.get("cTime"))
+        fill_time
         or _ms_to_naive_utc(info.get("uTime"))
+        or order_placed_at
     )
     if created_at is None:
         return None
@@ -179,6 +334,7 @@ def normalize_bitget_order(raw: dict[str, Any]) -> Optional[NormalizedHistoryOrd
         qty=qty,
         price=price,
         created_at=created_at,
+        order_placed_at=order_placed_at,
         realized_pnl=realized_pnl,
         margin_mode=_norm_margin_mode(raw.get("marginMode") or info.get("marginMode")),
     )

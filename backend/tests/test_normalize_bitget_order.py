@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from app.db.models import PositionSide
+from datetime import datetime
+
 from app.services.history_import.normalize_bitget import (
+    build_order_fill_times,
     normalize_bitget_closed_position,
     normalize_bitget_order,
     parse_bitget_direction,
@@ -101,6 +104,32 @@ def test_normalize_close_order_carries_realized_pnl() -> None:
 def test_normalize_skips_unfilled_order() -> None:
     raw = _order(filled=0.0, amount=0.0, info={"baseVolume": "0"})
     assert normalize_bitget_order(raw) is None
+
+
+def _from_ms(ms: int) -> datetime:
+    return datetime.utcfromtimestamp(ms / 1000)
+
+
+def test_build_order_fill_times_uses_latest_trade() -> None:
+    trades = [
+        {"order": "100", "timestamp": 1700000000000},
+        {"order": "100", "timestamp": 1700003600000},
+        {"order": "200", "info": {"orderId": "200", "cTime": "1700007200000"}},
+    ]
+    times = build_order_fill_times(trades)
+    assert times["100"] == _from_ms(1700003600000)
+    assert times["200"] == _from_ms(1700007200000)
+
+
+def test_normalize_order_prefers_fill_time_over_placement() -> None:
+    placed_ms = 1700000000000
+    fill_ms = 1700007200000
+    raw = _order(timestamp=placed_ms, info={"cTime": str(placed_ms)})
+    fill_time = _from_ms(fill_ms)
+    order = normalize_bitget_order(raw, fill_time=fill_time)
+    assert order is not None
+    assert order.created_at == fill_time
+    assert order.order_placed_at == _from_ms(placed_ms)
 
 
 def test_normalize_closed_position_summary() -> None:

@@ -103,6 +103,31 @@ class ExchangeClient(ABC):
 
         return []
 
+    def fetch_my_trades_history(
+        self,
+        *,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        symbols: Optional[list[str]] = None,
+    ) -> list[dict[str, Any]]:
+        """Return raw fill/trade dicts in ``[since, until]`` (ms).
+
+        Used to resolve per-order execution timestamps. Default no-op;
+        connectors with trade history override this.
+        """
+
+        return []
+
+    def fetch_order(
+        self,
+        order_id: str,
+        *,
+        symbol: str,
+    ) -> Optional[dict[str, Any]]:
+        """Return a single order by exchange id (for backfill gap recovery)."""
+
+        return None
+
     def fetch_all(self) -> FetchResult:
         """Convenience helper combining balance + positions."""
 

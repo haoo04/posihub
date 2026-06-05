@@ -40,8 +40,9 @@ class NormalizedHistoryOrder:
     action: ImportAction
     qty: float
     price: float
-    created_at: datetime
+    created_at: datetime  # fill time for FIFO; falls back to order update/placement
     canonical_symbol: Optional[str] = None
+    order_placed_at: Optional[datetime] = None  # 委托时间 (display / audit only)
     realized_pnl: Optional[float] = None
     margin_mode: Optional[str] = None
 
@@ -92,6 +93,7 @@ class OrderPreview:
     price: float
     created_at: datetime
     dedup_status: DedupStatus
+    order_placed_at: Optional[datetime] = None
     realized_pnl: Optional[float] = None
     matches: list[PlannedMatch] = field(default_factory=list)
     note: Optional[str] = None

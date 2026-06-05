@@ -315,6 +315,7 @@ export interface OrderPreviewRead {
   qty: number;
   price: number;
   created_at: string;
+  order_placed_at: string | null;
   dedup_status: ImportDedupStatus;
   realized_pnl: number | null;
   matches: PlannedMatchRead[];
