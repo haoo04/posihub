@@ -27,6 +27,8 @@ import type {
   PerformanceBreakdown,
   BreakdownDimension,
   RealizedPnlSeries,
+  TradesPage,
+  TradesQueryParams,
   PositionCloseExecutionRead,
   PositionCloseRequest,
   PositionMerged,
@@ -65,6 +67,8 @@ export const queryKeys = {
   ) => ["performance", "breakdown", dimension, params] as const,
   performanceRealized: (params: PerformanceQueryParams) =>
     ["performance", "realized", params] as const,
+  performanceTrades: (params: TradesQueryParams) =>
+    ["performance", "trades", params] as const,
   accountSnapshots: (params: Record<string, unknown> = {}) =>
     ["snapshots", "accounts", params] as const,
   positionSnapshots: (params: Record<string, unknown> = {}) =>
@@ -310,6 +314,30 @@ export function usePerformanceRealized(params: PerformanceQueryParams) {
           `/api/v1/performance/realized?${performanceSearchParams(params)}`
         )
       ).data,
+  });
+}
+
+function tradesSearchParams(params: TradesQueryParams): string {
+  const qs = new URLSearchParams(performanceSearchParams(params));
+  if (params.page) qs.set("page", String(params.page));
+  if (params.page_size) qs.set("page_size", String(params.page_size));
+  if (params.sort_field) qs.set("sort_field", params.sort_field);
+  if (params.sort_desc !== undefined) {
+    qs.set("sort_desc", String(params.sort_desc));
+  }
+  return qs.toString();
+}
+
+export function usePerformanceTrades(params: TradesQueryParams) {
+  return useQuery({
+    queryKey: queryKeys.performanceTrades(params),
+    queryFn: async () =>
+      (
+        await http.get<TradesPage>(
+          `/api/v1/performance/trades?${tradesSearchParams(params)}`
+        )
+      ).data,
+    placeholderData: (previous) => previous,
   });
 }
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Optional
 
+from ..db.models import DataSource, PositionSide
 from .common import APIModel
 
 
@@ -114,3 +115,29 @@ class RealizedPnlSeries(APIModel):
     period_end: date
     scope: PerformanceScopeRead
     points: list[RealizedPnlPoint]
+
+
+class TradeRowRead(APIModel):
+    execution_id: int
+    account_id: int
+    account_name: str
+    canonical_symbol: str
+    side: PositionSide
+    close_qty: float
+    close_price: float
+    realized_pnl: float
+    closed_at: Optional[datetime] = None
+    hold_duration_hours: Optional[float] = None
+    source: DataSource
+
+
+class TradesPage(APIModel):
+    range: str
+    asset: str
+    period_start: date
+    period_end: date
+    scope: PerformanceScopeRead
+    items: list[TradeRowRead]
+    total: int
+    page: int
+    page_size: int

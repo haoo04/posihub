@@ -32,6 +32,7 @@ from app.services.performance.equity_metrics import (
 )
 from app.services.performance.scope import resolve_performance_scope
 from app.services.performance.trade_metrics import _streaks, compute_trade_metrics
+from app.services.performance.trades import list_trades
 from app.services.position_order_close import fifo_close_position
 
 _seed_counter = 0
@@ -308,6 +309,45 @@ def test_realized_series_groups_by_day(in_memory_session: Session) -> None:
     assert points[0].realized_pnl == pytest.approx(1000.0)
 
 
+def test_list_trades_pagination_and_fields(in_memory_session: Session) -> None:
+    account = _seed_exchange_account(in_memory_session)
+    position = _bootstrap_position(in_memory_session, account)
+    fifo_close_position(
+        in_memory_session,
+        position_id=position.id,
+        close_qty=0.4,
+        close_price=52_000.0,
+    )
+    fifo_close_position(
+        in_memory_session,
+        position_id=position.id,
+        close_qty=0.3,
+        close_price=48_000.0,
+    )
+    in_memory_session.commit()
+
+    scope = resolve_performance_scope(in_memory_session)
+    today = date.today()
+    result = list_trades(
+        in_memory_session,
+        scope=scope,
+        start_date=today - timedelta(days=1),
+        end_date=today,
+        page=1,
+        page_size=1,
+        sort_field="realized_pnl",
+        sort_desc=True,
+    )
+    assert result.total == 2
+    assert len(result.items) == 1
+    # Highest realized PnL first (the winning close).
+    assert result.items[0].realized_pnl == pytest.approx((52_000.0 - 50_000.0) * 0.4)
+    assert result.items[0].canonical_symbol == "BTC-USDT-PERP"
+    # Hold duration is derived from matched open legs (>= 0).
+    assert result.items[0].hold_duration_hours is not None
+    assert result.items[0].hold_duration_hours >= 0.0
+
+
 @pytest.fixture()
 def client_overridden_session(
     in_memory_session: Session,
@@ -392,3 +432,19 @@ def test_performance_summary_api(
     realized_body = realized_resp.json()
     assert len(realized_body["points"]) == 1
     assert realized_body["points"][0]["realized_pnl"] == pytest.approx(1000.0)
+
+    trades_resp = client_overridden_session.get(
+        "/api/v1/performance/trades",
+        params={"range": "7d", "account_ids": str(account.id)},
+    )
+    assert trades_resp.status_code == 200
+    trades_body = trades_resp.json()
+    assert trades_body["total"] == 1
+    assert trades_body["items"][0]["canonical_symbol"] == "BTC-USDT-PERP"
+    assert trades_body["items"][0]["realized_pnl"] == pytest.approx(1000.0)
+
+    bad_sort = client_overridden_session.get(
+        "/api/v1/performance/trades",
+        params={"range": "7d", "sort_field": "bogus"},
+    )
+    assert bad_sort.status_code == 400

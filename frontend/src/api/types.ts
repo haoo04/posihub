@@ -218,11 +218,46 @@ export interface RealizedPnlSeries {
   points: RealizedPnlPoint[];
 }
 
+export type TradeSortField = "closed_at" | "realized_pnl" | "close_qty";
+
+export interface TradeRowRead {
+  execution_id: number;
+  account_id: number;
+  account_name: string;
+  canonical_symbol: string;
+  side: PositionSide;
+  close_qty: number;
+  close_price: number;
+  realized_pnl: number;
+  closed_at: string | null;
+  hold_duration_hours: number | null;
+  source: DataSource;
+}
+
+export interface TradesPage {
+  range: string;
+  asset: string;
+  period_start: string;
+  period_end: string;
+  scope: PerformanceScopeRead;
+  items: TradeRowRead[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
 export interface PerformanceQueryParams {
   range: string;
   asset?: string;
   account_ids?: number[];
   include_simulated?: boolean;
+}
+
+export interface TradesQueryParams extends PerformanceQueryParams {
+  page?: number;
+  page_size?: number;
+  sort_field?: TradeSortField;
+  sort_desc?: boolean;
 }
 
 export interface AccountSnapshot {

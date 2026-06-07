@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  Button,
   Card,
   Col,
   Row,
@@ -11,12 +12,14 @@ import {
   Tooltip,
   Typography,
 } from "antd";
-import type { ColumnsType } from "antd/es/table";
-import { InfoCircleOutlined } from "@ant-design/icons";
+import type { ColumnsType, TablePaginationConfig } from "antd/es/table";
+import type { SorterResult } from "antd/es/table/interface";
+import { DownloadOutlined, InfoCircleOutlined } from "@ant-design/icons";
 import ReactECharts from "echarts-for-react";
 import { PageHeader } from "@/components/PageHeader";
 import { KpiCard } from "@/components/KpiCard";
 import { PnlText } from "@/components/PnlText";
+import { SideTag } from "@/components/SideTag";
 import { AsyncBoundary } from "@/components/AsyncBoundary";
 import { ensurePosiTheme, POSI_PALETTE } from "@/theme/echartsTheme";
 import {
@@ -25,10 +28,18 @@ import {
   usePerformanceEquity,
   usePerformanceRealized,
   usePerformanceSummary,
+  usePerformanceTrades,
 } from "@/api/hooks";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
-import { fmtCompact, fmtMoney } from "@/utils/format";
-import type { BreakdownDimension, BreakdownRowRead } from "@/api/types";
+import { exportCsv } from "@/utils/csv";
+import { fmtCompact, fmtMoney, fmtPrice } from "@/utils/format";
+import dayjs from "dayjs";
+import type {
+  BreakdownDimension,
+  BreakdownRowRead,
+  TradeRowRead,
+  TradeSortField,
+} from "@/api/types";
 
 const { Text } = Typography;
 
@@ -53,6 +64,14 @@ const SIDE_LABEL: Record<string, string> = {
   short: "空",
   net: "净",
 };
+
+const PAGE_SIZE = 20;
+
+function fmtHold(hours: number | null): string {
+  if (hours === null || hours === undefined || Number.isNaN(hours)) return "—";
+  if (hours < 24) return `${hours.toFixed(1)} 小时`;
+  return `${(hours / 24).toFixed(1)} 天`;
+}
 
 function fmtRatio(value: number | null | undefined): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";
@@ -88,16 +107,137 @@ export function PerformancePage() {
   );
 
   const [dimension, setDimension] = useState<BreakdownDimension>("symbol");
+  const [tradePage, setTradePage] = useState(1);
+  const [tradeSort, setTradeSort] = useState<{
+    field: TradeSortField;
+    desc: boolean;
+  }>({ field: "closed_at", desc: true });
 
   const summary = usePerformanceSummary(queryParams);
   const equity = usePerformanceEquity(queryParams);
   const realized = usePerformanceRealized(queryParams);
   const breakdown = usePerformanceBreakdown(dimension, queryParams);
+  const trades = usePerformanceTrades({
+    ...queryParams,
+    page: tradePage,
+    page_size: PAGE_SIZE,
+    sort_field: tradeSort.field,
+    sort_desc: tradeSort.desc,
+  });
 
   const data = summary.data;
   const points = equity.data?.points ?? [];
   const realizedPoints = realized.data?.points ?? [];
   const breakdownRows = breakdown.data?.rows ?? [];
+  const tradeRows = trades.data?.items ?? [];
+
+  const onExportTrades = () => {
+    if (!tradeRows.length) return;
+    exportCsv<TradeRowRead>(
+      `trades-${range}-${dayjs().format("YYYYMMDD-HHmm")}.csv`,
+      [
+        {
+          header: "平仓时间",
+          value: (r) =>
+            r.closed_at ? dayjs(r.closed_at).format("YYYY-MM-DD HH:mm:ss") : "",
+        },
+        { header: "账户", value: (r) => r.account_name },
+        { header: "合约", value: (r) => r.canonical_symbol },
+        { header: "方向", value: (r) => r.side },
+        { header: "平仓数量", value: (r) => r.close_qty },
+        { header: "平仓价", value: (r) => r.close_price },
+        { header: "已实现盈亏", value: (r) => r.realized_pnl },
+        {
+          header: "持仓时长(小时)",
+          value: (r) =>
+            r.hold_duration_hours === null
+              ? ""
+              : r.hold_duration_hours.toFixed(2),
+        },
+        { header: "来源", value: (r) => r.source },
+      ],
+      tradeRows
+    );
+  };
+
+  const tradeColumns: ColumnsType<TradeRowRead> = useMemo(
+    () => [
+      {
+        title: "平仓时间",
+        dataIndex: "closed_at",
+        key: "closed_at",
+        sorter: true,
+        defaultSortOrder: "descend",
+        render: (v: string | null) =>
+          v ? dayjs(v).format("YYYY-MM-DD HH:mm") : "—",
+      },
+      {
+        title: "账户",
+        dataIndex: "account_name",
+        key: "account_name",
+      },
+      {
+        title: "合约",
+        dataIndex: "canonical_symbol",
+        key: "canonical_symbol",
+      },
+      {
+        title: "方向",
+        dataIndex: "side",
+        key: "side",
+        render: (side: TradeRowRead["side"]) => <SideTag side={side} />,
+      },
+      {
+        title: "平仓数量",
+        dataIndex: "close_qty",
+        key: "close_qty",
+        align: "right",
+        sorter: true,
+        render: (v: number) => v,
+      },
+      {
+        title: "平仓价",
+        dataIndex: "close_price",
+        key: "close_price",
+        align: "right",
+        render: (v: number) => fmtPrice(v),
+      },
+      {
+        title: "已实现盈亏",
+        dataIndex: "realized_pnl",
+        key: "realized_pnl",
+        align: "right",
+        sorter: true,
+        render: (v: number) => <PnlText value={v} />,
+      },
+      {
+        title: "持仓时长",
+        dataIndex: "hold_duration_hours",
+        key: "hold_duration_hours",
+        align: "right",
+        render: (v: number | null) => fmtHold(v),
+      },
+    ],
+    []
+  );
+
+  const onTradeTableChange = (
+    pagination: TablePaginationConfig,
+    _filters: unknown,
+    sorter: SorterResult<TradeRowRead> | SorterResult<TradeRowRead>[]
+  ) => {
+    const s = Array.isArray(sorter) ? sorter[0] : sorter;
+    const field = String(s?.field ?? "closed_at");
+    if (
+      s?.order &&
+      (field === "closed_at" ||
+        field === "realized_pnl" ||
+        field === "close_qty")
+    ) {
+      setTradeSort({ field, desc: s.order === "descend" });
+    }
+    if (pagination.current) setTradePage(pagination.current);
+  };
 
   const realizedOption = useMemo(() => {
     const dates = realizedPoints.map((p) => p.trade_date);
@@ -300,13 +440,19 @@ export function PerformancePage() {
             placeholder="全部账户"
             style={{ minWidth: isMobile ? "100%" : 240 }}
             value={accountIds}
-            onChange={setAccountIds}
+            onChange={(v) => {
+              setAccountIds(v);
+              setTradePage(1);
+            }}
             options={accountOptions}
             maxTagCount={isMobile ? 2 : 4}
           />
           <Segmented
             value={range}
-            onChange={(v) => setRange(String(v))}
+            onChange={(v) => {
+              setRange(String(v));
+              setTradePage(1);
+            }}
             options={RANGES}
           />
           <Space size={8}>
@@ -316,7 +462,10 @@ export function PerformancePage() {
             <Switch
               size="small"
               checked={includeSimulated}
-              onChange={setIncludeSimulated}
+              onChange={(v) => {
+                setIncludeSimulated(v);
+                setTradePage(1);
+              }}
             />
           </Space>
           <Text type="secondary" style={{ fontSize: 12 }}>
@@ -636,6 +785,44 @@ export function PerformancePage() {
             columns={breakdownColumns}
             dataSource={breakdownRows}
             pagination={false}
+            scroll={{ x: true }}
+          />
+        </AsyncBoundary>
+      </Card>
+
+      <Card
+        title="平仓明细"
+        extra={
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            disabled={!tradeRows.length}
+            onClick={onExportTrades}
+          >
+            导出 CSV
+          </Button>
+        }
+        bodyStyle={{ padding: isMobile ? 8 : 16 }}
+        style={{ borderRadius: 12 }}
+      >
+        <AsyncBoundary
+          loading={trades.isLoading}
+          error={trades.error}
+          empty={!tradeRows.length}
+          emptyText="区间内暂无平仓记录"
+        >
+          <Table<TradeRowRead>
+            rowKey="execution_id"
+            size="small"
+            columns={tradeColumns}
+            dataSource={tradeRows}
+            onChange={onTradeTableChange}
+            pagination={{
+              current: trades.data?.page ?? 1,
+              pageSize: trades.data?.page_size ?? PAGE_SIZE,
+              total: trades.data?.total ?? 0,
+              showSizeChanger: false,
+            }}
             scroll={{ x: true }}
           />
         </AsyncBoundary>

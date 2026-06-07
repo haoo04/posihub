@@ -16,6 +16,8 @@ from ..schemas.performance import (
     PerformanceSummary,
     RealizedPnlPoint,
     RealizedPnlSeries,
+    TradeRowRead,
+    TradesPage,
 )
 from ..services.aggregate.pnl_calculator import parse_range
 from ..services.performance.breakdown import (
@@ -27,6 +29,7 @@ from ..services.performance.equity_metrics import compute_equity_metrics
 from ..services.performance.live_exposure import compute_live_exposure
 from ..services.performance.scope import parse_account_ids, resolve_performance_scope
 from ..services.performance.trade_metrics import compute_trade_metrics
+from ..services.performance.trades import SORTABLE_FIELDS, list_trades
 from .deps import SessionDep
 
 router = APIRouter(prefix="/api/v1/performance", tags=["performance"])
@@ -288,4 +291,66 @@ def get_performance_realized(
             )
             for p in points
         ],
+    )
+
+
+@router.get("/trades", response_model=TradesPage)
+def get_performance_trades(
+    session: SessionDep,
+    range: str = Query("30d", description="Time window: 7d / 30d / 90d / Nd"),
+    asset: str = Query("USDT"),
+    account_ids: str | None = Query(default=None),
+    exchange_id: int | None = Query(default=None),
+    include_simulated: bool = Query(default=False),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=500),
+    sort_field: str = Query(default="closed_at"),
+    sort_desc: bool = Query(default=True),
+) -> TradesPage:
+    if sort_field not in SORTABLE_FIELDS:
+        raise HTTPException(
+            status_code=400, detail=f"unsupported sort_field: {sort_field}"
+        )
+    parsed_ids, scope, start_date, end_date = _resolve(
+        session,
+        range=range,
+        account_ids=account_ids,
+        exchange_id=exchange_id,
+        include_simulated=include_simulated,
+    )
+    result = list_trades(
+        session,
+        scope=scope,
+        start_date=start_date,
+        end_date=end_date,
+        page=page,
+        page_size=page_size,
+        sort_field=sort_field,
+        sort_desc=sort_desc,
+    )
+    return TradesPage(
+        range=range,
+        asset=asset.upper(),
+        period_start=start_date,
+        period_end=end_date,
+        scope=_scope_read(scope, parsed_ids),
+        items=[
+            TradeRowRead(
+                execution_id=t.execution_id,
+                account_id=t.account_id,
+                account_name=t.account_name,
+                canonical_symbol=t.canonical_symbol,
+                side=t.side,
+                close_qty=t.close_qty,
+                close_price=t.close_price,
+                realized_pnl=t.realized_pnl,
+                closed_at=t.closed_at,
+                hold_duration_hours=t.hold_duration_hours,
+                source=t.source,
+            )
+            for t in result.items
+        ],
+        total=result.total,
+        page=result.page,
+        page_size=result.page_size,
     )
