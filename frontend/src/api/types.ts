@@ -114,6 +114,152 @@ export interface PnlSeries {
   points: PnlPoint[];
 }
 
+export interface PerformanceScopeRead {
+  account_ids: number[];
+  exchange_id: number | null;
+  include_simulated: boolean;
+  account_count: number;
+}
+
+export interface DataCoverageRead {
+  snapshot_days: number;
+  first_snapshot_date: string | null;
+  last_snapshot_date: string | null;
+  trade_count: number;
+  first_trade_at: string | null;
+  last_trade_at: string | null;
+}
+
+export interface EquityPerformancePoint {
+  snapshot_date: string;
+  total_equity: number;
+  drawdown_pct: number;
+}
+
+export interface EquityPerformanceSeries {
+  range: string;
+  asset: string;
+  period_start: string;
+  period_end: string;
+  scope: PerformanceScopeRead;
+  points: EquityPerformancePoint[];
+  data_coverage: DataCoverageRead;
+}
+
+export interface PerformanceSummary {
+  range: string;
+  asset: string;
+  period_start: string;
+  period_end: string;
+  scope: PerformanceScopeRead;
+  data_coverage: DataCoverageRead;
+  equity_start: number;
+  equity_end: number;
+  equity_change: number;
+  equity_change_pct: number;
+  max_drawdown_pct: number;
+  current_drawdown_pct: number;
+  annualized_return_pct: number;
+  calmar_ratio: number | null;
+  realized_pnl_total: number;
+  trade_count: number;
+  win_count: number;
+  loss_count: number;
+  breakeven_count: number;
+  win_rate: number;
+  avg_win: number;
+  avg_loss: number;
+  win_loss_ratio: number | null;
+  profit_factor: number | null;
+  largest_win: number;
+  largest_loss: number;
+  avg_trade_pnl: number;
+  max_win_streak: number;
+  max_loss_streak: number;
+  unrealized_pnl: number;
+  open_position_count: number;
+}
+
+export type BreakdownDimension = "symbol" | "account" | "side" | "exchange";
+
+export interface BreakdownRowRead {
+  key: string;
+  label: string;
+  trade_count: number;
+  win_count: number;
+  loss_count: number;
+  win_rate: number;
+  realized_pnl_total: number;
+  avg_pnl: number;
+}
+
+export interface PerformanceBreakdown {
+  range: string;
+  asset: string;
+  dimension: BreakdownDimension;
+  period_start: string;
+  period_end: string;
+  scope: PerformanceScopeRead;
+  rows: BreakdownRowRead[];
+}
+
+export interface RealizedPnlPoint {
+  trade_date: string;
+  realized_pnl: number;
+  trade_count: number;
+}
+
+export interface RealizedPnlSeries {
+  range: string;
+  asset: string;
+  period_start: string;
+  period_end: string;
+  scope: PerformanceScopeRead;
+  points: RealizedPnlPoint[];
+}
+
+export type TradeSortField = "closed_at" | "realized_pnl" | "close_qty";
+
+export interface TradeRowRead {
+  execution_id: number;
+  account_id: number;
+  account_name: string;
+  canonical_symbol: string;
+  side: PositionSide;
+  close_qty: number;
+  close_price: number;
+  realized_pnl: number;
+  closed_at: string | null;
+  hold_duration_hours: number | null;
+  source: DataSource;
+}
+
+export interface TradesPage {
+  range: string;
+  asset: string;
+  period_start: string;
+  period_end: string;
+  scope: PerformanceScopeRead;
+  items: TradeRowRead[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface PerformanceQueryParams {
+  range: string;
+  asset?: string;
+  account_ids?: number[];
+  include_simulated?: boolean;
+}
+
+export interface TradesQueryParams extends PerformanceQueryParams {
+  page?: number;
+  page_size?: number;
+  sort_field?: TradeSortField;
+  sort_desc?: boolean;
+}
+
 export interface AccountSnapshot {
   id: number;
   snapshot_date: string;

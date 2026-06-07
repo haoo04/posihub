@@ -21,6 +21,14 @@ import type {
   ManualSnapshotResult,
   Overview,
   PnlSeries,
+  PerformanceQueryParams,
+  PerformanceSummary,
+  EquityPerformanceSeries,
+  PerformanceBreakdown,
+  BreakdownDimension,
+  RealizedPnlSeries,
+  TradesPage,
+  TradesQueryParams,
   PositionCloseExecutionRead,
   PositionCloseRequest,
   PositionMerged,
@@ -49,6 +57,18 @@ export const queryKeys = {
   positionCloseExecutions: (positionId: number) =>
     ["position-close-executions", positionId] as const,
   pnl: (range: string, asset: string) => ["pnl", range, asset] as const,
+  performanceSummary: (params: PerformanceQueryParams) =>
+    ["performance", "summary", params] as const,
+  performanceEquity: (params: PerformanceQueryParams) =>
+    ["performance", "equity", params] as const,
+  performanceBreakdown: (
+    dimension: BreakdownDimension,
+    params: PerformanceQueryParams
+  ) => ["performance", "breakdown", dimension, params] as const,
+  performanceRealized: (params: PerformanceQueryParams) =>
+    ["performance", "realized", params] as const,
+  performanceTrades: (params: TradesQueryParams) =>
+    ["performance", "trades", params] as const,
   accountSnapshots: (params: Record<string, unknown> = {}) =>
     ["snapshots", "accounts", params] as const,
   positionSnapshots: (params: Record<string, unknown> = {}) =>
@@ -228,6 +248,96 @@ export function usePnl(range: string, asset = "USDT") {
           `/api/v1/pnl?range=${range}&asset=${asset}`
         )
       ).data,
+  });
+}
+
+function performanceSearchParams(params: PerformanceQueryParams): string {
+  const qs = new URLSearchParams({ range: params.range });
+  if (params.asset) qs.set("asset", params.asset);
+  if (params.account_ids?.length) {
+    qs.set("account_ids", params.account_ids.join(","));
+  }
+  if (params.include_simulated) {
+    qs.set("include_simulated", "true");
+  }
+  return qs.toString();
+}
+
+export function usePerformanceSummary(params: PerformanceQueryParams) {
+  return useQuery({
+    queryKey: queryKeys.performanceSummary(params),
+    queryFn: async () =>
+      (
+        await http.get<PerformanceSummary>(
+          `/api/v1/performance/summary?${performanceSearchParams(params)}`
+        )
+      ).data,
+  });
+}
+
+export function usePerformanceEquity(params: PerformanceQueryParams) {
+  return useQuery({
+    queryKey: queryKeys.performanceEquity(params),
+    queryFn: async () =>
+      (
+        await http.get<EquityPerformanceSeries>(
+          `/api/v1/performance/equity?${performanceSearchParams(params)}`
+        )
+      ).data,
+  });
+}
+
+export function usePerformanceBreakdown(
+  dimension: BreakdownDimension,
+  params: PerformanceQueryParams
+) {
+  return useQuery({
+    queryKey: queryKeys.performanceBreakdown(dimension, params),
+    queryFn: async () => {
+      const qs = performanceSearchParams(params);
+      return (
+        await http.get<PerformanceBreakdown>(
+          `/api/v1/performance/breakdown?dimension=${dimension}&${qs}`
+        )
+      ).data;
+    },
+    placeholderData: (previous) => previous,
+  });
+}
+
+export function usePerformanceRealized(params: PerformanceQueryParams) {
+  return useQuery({
+    queryKey: queryKeys.performanceRealized(params),
+    queryFn: async () =>
+      (
+        await http.get<RealizedPnlSeries>(
+          `/api/v1/performance/realized?${performanceSearchParams(params)}`
+        )
+      ).data,
+  });
+}
+
+function tradesSearchParams(params: TradesQueryParams): string {
+  const qs = new URLSearchParams(performanceSearchParams(params));
+  if (params.page) qs.set("page", String(params.page));
+  if (params.page_size) qs.set("page_size", String(params.page_size));
+  if (params.sort_field) qs.set("sort_field", params.sort_field);
+  if (params.sort_desc !== undefined) {
+    qs.set("sort_desc", String(params.sort_desc));
+  }
+  return qs.toString();
+}
+
+export function usePerformanceTrades(params: TradesQueryParams) {
+  return useQuery({
+    queryKey: queryKeys.performanceTrades(params),
+    queryFn: async () =>
+      (
+        await http.get<TradesPage>(
+          `/api/v1/performance/trades?${tradesSearchParams(params)}`
+        )
+      ).data,
+    placeholderData: (previous) => previous,
   });
 }
 
