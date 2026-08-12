@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { ConfigProvider, App as AntApp } from "antd";
+import enUS from "antd/locale/en_US";
 import zhCN from "antd/locale/zh_CN";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
@@ -10,6 +11,7 @@ import { ensurePosiTheme } from "./theme/echartsTheme";
 import { http } from "./api/client";
 import { queryKeys } from "./api/hooks";
 import type { Account } from "./api/types";
+import { LocaleProvider, useLocale } from "./i18n/LocaleContext";
 import "./styles/global.css";
 
 ensurePosiTheme();
@@ -31,9 +33,13 @@ void queryClient.prefetchQuery({
   queryFn: async () => (await http.get<Account[]>("/api/v1/accounts")).data,
 });
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <ConfigProvider locale={zhCN} theme={antdTheme}>
+function RootProviders() {
+  const { locale } = useLocale();
+  return (
+    <ConfigProvider
+      locale={locale === "zh-CN" ? zhCN : enUS}
+      theme={antdTheme}
+    >
       <AntApp>
         <QueryClientProvider client={queryClient}>
           <BrowserRouter>
@@ -42,5 +48,13 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         </QueryClientProvider>
       </AntApp>
     </ConfigProvider>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <LocaleProvider>
+      <RootProviders />
+    </LocaleProvider>
   </React.StrictMode>
 );

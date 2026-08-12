@@ -15,12 +15,14 @@ import {
   fmtPrice,
   fmtRelative,
 } from "@/utils/format";
+import { useLocale } from "@/i18n/LocaleContext";
 
 const { Text } = Typography;
 
 ensurePosiTheme();
 
 export function OverviewPage() {
+  const { t } = useLocale();
   const { isMobile } = useBreakpoint();
   const overview = useOverview();
   const pnl = usePnl("30d");
@@ -113,11 +115,13 @@ export function OverviewPage() {
   return (
     <Space direction="vertical" size={isMobile ? 16 : 20} style={{ width: "100%" }}>
       <PageHeader
-        title="总览"
+        title={t("overview.title")}
         description={
           overview.data?.last_snapshot_at
-            ? `最近快照 · ${fmtRelative(overview.data.last_snapshot_at)}`
-            : "尚未生成快照"
+            ? t("overview.latestSnapshot", {
+                time: fmtRelative(overview.data.last_snapshot_at),
+              })
+            : t("overview.noSnapshot")
         }
         extra={
           <Tag
@@ -129,7 +133,9 @@ export function OverviewPage() {
               fontWeight: 500,
             }}
           >
-            {overview.data?.total_accounts ?? 0} 个账户在管
+            {t("overview.managedAccounts", {
+              count: overview.data?.total_accounts ?? 0,
+            })}
           </Tag>
         }
       />
@@ -137,20 +143,22 @@ export function OverviewPage() {
       <Row gutter={isMobile ? [12, 12] : [16, 16]}>
         <Col xs={24} sm={12} lg={6}>
           <KpiCard
-            label="总权益 (USDT)"
+            label={t("overview.totalEquity")}
             loading={overview.isLoading}
             value={fmtMoney(overview.data?.total_equity ?? 0)}
             hint={
               overview.data?.last_sync_at
-                ? `同步于 ${fmtRelative(overview.data.last_sync_at)}`
-                : "等待首次同步"
+                ? t("overview.syncedAt", {
+                    time: fmtRelative(overview.data.last_sync_at),
+                  })
+                : t("overview.waitingFirstSync")
             }
             accent="primary"
           />
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <KpiCard
-            label="未实现盈亏"
+            label={t("overview.unrealizedPnl")}
             loading={overview.isLoading || positions.isLoading}
             value={
               <PnlText
@@ -160,7 +168,7 @@ export function OverviewPage() {
             }
             hint={
               <span>
-                已实现 <PnlText value={realizedTotal} />
+                {t("overview.realized")} <PnlText value={realizedTotal} />
               </span>
             }
             accent={
@@ -170,19 +178,19 @@ export function OverviewPage() {
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <KpiCard
-            label="持仓数量"
+            label={t("overview.positionCount")}
             loading={overview.isLoading}
             value={overview.data?.total_positions ?? 0}
-            hint="按账户合计"
+            hint={t("overview.byAccount")}
             accent="neutral"
           />
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <KpiCard
-            label="账户数量"
+            label={t("overview.accountCount")}
             loading={overview.isLoading}
             value={overview.data?.total_accounts ?? 0}
-            hint="含模拟账户"
+            hint={t("overview.includingSimulated")}
             accent="neutral"
           />
         </Col>
@@ -193,7 +201,7 @@ export function OverviewPage() {
           <Card
             title={
               <Space size={12}>
-                <span>权益走势</span>
+                <span>{t("overview.equityTrend")}</span>
                 <Tag
                   style={{
                     margin: 0,
@@ -202,14 +210,14 @@ export function OverviewPage() {
                     color: "var(--posi-text-secondary)",
                   }}
                 >
-                  近 30 日
+                  {t("overview.last30Days")}
                 </Tag>
               </Space>
             }
             extra={
               !isMobile ? (
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  数据基于每日 23:55 快照
+                  {t("overview.dailySnapshotNote")}
                 </Text>
               ) : null
             }
@@ -220,7 +228,7 @@ export function OverviewPage() {
               loading={pnl.isLoading}
               error={pnl.error}
               empty={!pnl.data?.points?.length}
-              emptyText="暂无快照，先去同步或写入快照"
+              emptyText={t("overview.noSnapshots")}
             >
               <ReactECharts
                 option={equityOption}
@@ -233,7 +241,7 @@ export function OverviewPage() {
         </Col>
         <Col xs={24} lg={8}>
           <Card
-            title="持仓占比 Top 6"
+            title={t("overview.allocationTop")}
             bodyStyle={{ padding: 16 }}
             style={{ borderRadius: 12, height: "100%" }}
           >
@@ -241,7 +249,7 @@ export function OverviewPage() {
               loading={positions.isLoading}
               error={positions.error}
               empty={!positions.data?.length}
-              emptyText="暂无持仓"
+              emptyText={t("overview.noPositions")}
             >
               <ReactECharts
                 option={allocationOption}
@@ -255,7 +263,7 @@ export function OverviewPage() {
       </Row>
 
       <Card
-        title="主要持仓"
+        title={t("overview.mainPositions")}
         bodyStyle={{ padding: 0 }}
         style={{ borderRadius: 12 }}
       >
@@ -268,7 +276,15 @@ export function OverviewPage() {
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: isMobile ? 520 : undefined }}>
             <thead>
               <tr>
-                {["合约", "方向", "数量", "均价", "标记价", "未实现盈亏", "已实现盈亏"].map(
+                {[
+                  t("overview.contract"),
+                  t("overview.side"),
+                  t("overview.qty"),
+                  t("overview.avgPrice"),
+                  t("overview.markPrice"),
+                  t("overview.unrealizedPnl"),
+                  t("overview.realized"),
+                ].map(
                   (h) => (
                     <th
                       key={h}
@@ -298,7 +314,7 @@ export function OverviewPage() {
                       type="secondary"
                       style={{ marginLeft: 8, fontSize: 12 }}
                     >
-                      {p.accounts.length} 账户
+                      {t("overview.accounts", { count: p.accounts.length })}
                     </Text>
                   </td>
                   <td style={tdStyle}>

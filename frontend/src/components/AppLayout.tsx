@@ -5,6 +5,7 @@ import {
   Grid,
   Layout,
   Menu,
+  Segmented,
   Space,
   Tooltip,
   Typography,
@@ -25,36 +26,41 @@ import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { StatusDot } from "./StatusDot";
 import { useOverview } from "@/api/hooks";
 import { fmtRelative } from "@/utils/format";
+import { useLocale } from "@/i18n/LocaleContext";
 
 const { useBreakpoint } = Grid;
 
 const { Sider, Header, Content } = Layout;
 const { Text } = Typography;
 
-const NAV = [
-  { key: "/overview", label: "总览", icon: <AppstoreOutlined /> },
-  { key: "/accounts", label: "账户", icon: <BankOutlined /> },
-  { key: "/positions", label: "仓位", icon: <PieChartOutlined /> },
-  { key: "/pnl", label: "盈亏", icon: <LineChartOutlined /> },
-  { key: "/performance", label: "交易表现", icon: <FundOutlined /> },
-  { key: "/snapshots", label: "历史快照", icon: <HistoryOutlined /> },
-  { key: "/symbols", label: "Symbol 映射", icon: <TagsOutlined /> },
-  { key: "/manual", label: "手动录入", icon: <EditOutlined /> },
-  { key: "/settings", label: "设置", icon: <SettingOutlined /> },
-];
-
 export function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { locale, setLocale, t } = useLocale();
   const overview = useOverview({ refetchInterval: 60_000 });
   const screens = useBreakpoint();
   const mdUp = !!screens.md;
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
+  const navItems = useMemo(
+    () => [
+      { key: "/overview", label: t("nav.overview"), icon: <AppstoreOutlined /> },
+      { key: "/accounts", label: t("nav.accounts"), icon: <BankOutlined /> },
+      { key: "/positions", label: t("nav.positions"), icon: <PieChartOutlined /> },
+      { key: "/pnl", label: t("nav.pnl"), icon: <LineChartOutlined /> },
+      { key: "/performance", label: t("nav.performance"), icon: <FundOutlined /> },
+      { key: "/snapshots", label: t("nav.snapshots"), icon: <HistoryOutlined /> },
+      { key: "/symbols", label: t("nav.symbols"), icon: <TagsOutlined /> },
+      { key: "/manual", label: t("nav.manual"), icon: <EditOutlined /> },
+      { key: "/settings", label: t("nav.settings"), icon: <SettingOutlined /> },
+    ],
+    [t]
+  );
+
   const selected = useMemo(() => {
-    const key = NAV.find((n) => location.pathname.startsWith(n.key))?.key;
+    const key = navItems.find((n) => location.pathname.startsWith(n.key))?.key;
     return key ?? "/overview";
-  }, [location.pathname]);
+  }, [location.pathname, navItems]);
 
   useEffect(() => {
     setMobileNavOpen(false);
@@ -73,12 +79,12 @@ export function AppLayout() {
       style={{ paddingTop: mdUp ? 12 : 0, border: "none" }}
       items={
         mdUp
-          ? NAV.map((n) => ({
+          ? navItems.map((n) => ({
               key: n.key,
               icon: n.icon,
               label: <Link to={n.key}>{n.label}</Link>,
             }))
-          : NAV.map((n) => ({
+          : navItems.map((n) => ({
               key: n.key,
               icon: n.icon,
               label: n.label,
@@ -152,7 +158,7 @@ export function AppLayout() {
                 type="text"
                 icon={<MenuOutlined style={{ fontSize: 18 }} />}
                 onClick={() => setMobileNavOpen(true)}
-                aria-label="打开导航菜单"
+                aria-label={t("nav.openMenu")}
                 style={{ marginLeft: -8 }}
               />
             ) : null}
@@ -168,15 +174,27 @@ export function AppLayout() {
                 maxWidth: mdUp ? "none" : "42vw",
               }}
             >
-              {mdUp ? "Trading Account & Position Hub" : "posihub"}
+              {mdUp ? t("layout.desktopSubtitle") : "posihub"}
             </Text>
           </Space>
           <Space size={mdUp ? 20 : 8}>
+            <Segmented
+              size="small"
+              value={locale}
+              onChange={(value) => setLocale(value as typeof locale)}
+              options={[
+                { label: "中文", value: "zh-CN" },
+                { label: "EN", value: "en" },
+              ]}
+              aria-label={t("locale.label")}
+            />
             <Tooltip
               title={
                 overview.data?.last_sync_at
-                  ? `上次同步 ${fmtRelative(overview.data.last_sync_at)}`
-                  : "暂无同步记录"
+                  ? t("layout.lastSync", {
+                      time: fmtRelative(overview.data.last_sync_at),
+                    })
+                  : t("layout.noSyncRecord")
               }
             >
               <StatusDot
@@ -184,10 +202,10 @@ export function AppLayout() {
                 label={
                   mdUp
                     ? status === "error"
-                      ? "API 异常"
+                      ? t("layout.apiError")
                       : status === "ok"
-                        ? "已连接"
-                        : "等待同步"
+                        ? t("layout.connected")
+                        : t("layout.waitingSync")
                     : undefined
                 }
               />
