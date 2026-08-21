@@ -2,12 +2,17 @@ import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
+import "dayjs/locale/en";
 import "dayjs/locale/zh-cn";
 
 dayjs.extend(relativeTime);
 dayjs.extend(utc);
 dayjs.extend(timezone);
 dayjs.locale("zh-cn");
+
+export function setDateLocale(locale: "zh-CN" | "en") {
+  dayjs.locale(locale === "zh-CN" ? "zh-cn" : "en");
+}
 
 const MONEY_FMT = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 2,

@@ -1,0 +1,8 @@
+{
+  "scripts": {
+    "dev": "concurrently \"npm --prefix frontend run dev\" \"cd backend && uvicorn app.main:app --port 8000 --host 127.0.0.1\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
