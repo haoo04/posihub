@@ -56,6 +56,7 @@ _USDT_MARGIN_BASES = (
     "INJ",
     "TIA",
     "SEI",
+    "HYPE",
 )
 
 
@@ -80,6 +81,9 @@ SEEDS: list[tuple[str, str, str, str, InstrumentType]] = [
     ("bybit", "BTC/USD:BTC", "BTC", "USD", InstrumentType.PERP),
     ("bitget", "BTC/USD:BTC", "BTC", "USD", InstrumentType.PERP),
     ("bitget", "ETH/USD:ETH", "ETH", "USD", InstrumentType.PERP),
+    ("binance", "SOL/USD:SOL", "SOL", "USD", InstrumentType.PERP),
+    ("bybit", "SOL/USD:SOL", "SOL", "USD", InstrumentType.PERP),
+    ("bitget", "SOL/USD:SOL", "SOL", "USD", InstrumentType.PERP),
     # Stock and ETF
     ("bitget", "SPY/USDT:USDT", "SPY", "USDT", InstrumentType.PERP),
 ]
