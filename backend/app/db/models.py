@@ -105,6 +105,22 @@ class Account(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
+class ExchangeConnectionState(SQLModel, table=True):
+    """Latest read-only API connectivity test for an account."""
+
+    __tablename__ = "exchange_connection_states"
+    __table_args__ = (
+        UniqueConstraint("account_id", name="uq_exchange_connection_state_account"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    account_id: int = Field(foreign_key="accounts.id", index=True)
+    status: str = Field(default="unknown", max_length=24)
+    last_test_at: datetime | None = Field(default=None)
+    latency_ms: float | None = Field(default=None)
+    message: str | None = Field(default=None, max_length=500)
+
+
 # ---------------------------------------------------------------------------
 # Standardisation dictionary
 # ---------------------------------------------------------------------------

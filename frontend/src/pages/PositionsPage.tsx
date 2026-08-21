@@ -8,6 +8,7 @@ import {
   Col,
   Segmented,
   Space,
+  Tag,
   Table,
   Typography,
 } from "antd";
@@ -19,7 +20,11 @@ import { PnlText } from "@/components/PnlText";
 import { SideTag } from "@/components/SideTag";
 import { PositionOrdersTable } from "@/components/PositionOrdersTable";
 import RelativeTime from "@/components/RelativeTime";
-import { useAccounts, usePositions } from "@/api/hooks";
+import {
+  useAccounts,
+  useLivePositionPrices,
+  usePositions,
+} from "@/api/hooks";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import type {
   PositionMarket,
@@ -55,6 +60,11 @@ export function PositionsPage() {
   const [keyword, setKeyword] = useState("");
   const accounts = useAccounts();
   const positions = usePositions(view, market);
+  const livePrices = useLivePositionPrices(
+    view,
+    market,
+    (positions.data?.length ?? 0) > 0
+  );
   const accountsLoading = accounts.isLoading;
 
   const isSpot = market === "spot";
@@ -88,8 +98,41 @@ export function PositionsPage() {
     isSpot,
   });
 
+  const livePriceMap = useMemo(() => {
+    const map = new Map<number | string, number>();
+    for (const item of livePrices.data?.prices ?? []) {
+      const key = view === "split" ? item.position_id : item.canonical_symbol;
+      if (key !== null && key !== undefined) {
+        map.set(key, item.price);
+      }
+    }
+    return map;
+  }, [livePrices.data?.prices, view]);
+
+  const displayData = useMemo(() => {
+    if (!positions.data) return [];
+    if (view === "split") {
+      return (positions.data as PositionSplit[]).map((position) => {
+        const price = livePriceMap.get(position.id);
+        return price === undefined ? position : { ...position, mark_price: price };
+      });
+    }
+    return (positions.data as PositionMerged[]).map((position) => {
+      const price = livePriceMap.get(position.canonical_symbol);
+      if (price === undefined) return position;
+      return {
+        ...position,
+        mark_price: price,
+        notional:
+          position.side === "short"
+            ? -Math.abs(position.qty * price)
+            : Math.abs(position.qty * price),
+      };
+    });
+  }, [livePriceMap, positions.data, view]);
+
   const filteredData = useMemo(() => {
-    const list = positions.data ?? [];
+    const list = displayData;
     const k = keyword.toUpperCase();
     if (view === "split") {
       const rows = (list as PositionSplit[]).filter(
@@ -113,7 +156,7 @@ export function PositionsPage() {
     return (list as PositionMerged[]).filter(
       (p) => !k || p.canonical_symbol.toUpperCase().includes(k)
     );
-  }, [positions.data, keyword, accountMap, view]);
+  }, [displayData, keyword, accountMap, view]);
 
   const splitColumns = useMemo<ColumnsType<PositionSplit>>(
     () => [
@@ -576,10 +619,32 @@ export function PositionsPage() {
             <Button
               icon={<ReloadOutlined />}
               loading={positions.isFetching}
-              onClick={() => positions.refetch()}
+              onClick={() => {
+                void positions.refetch();
+                void livePrices.refetch();
+              }}
             >
               刷新
             </Button>
+            <Tag
+              color={
+                livePrices.isError
+                  ? "error"
+                  : (livePrices.data?.failed_exchanges.length ?? 0) > 0
+                    ? "warning"
+                  : livePrices.isFetching
+                    ? "processing"
+                    : "success"
+              }
+            >
+              {livePrices.isError
+                ? "行情更新失败，保留当前价格"
+                : (livePrices.data?.failed_exchanges.length ?? 0) > 0
+                  ? "部分交易所行情失败，保留当前价格"
+                : livePrices.isFetching
+                  ? "行情更新中"
+                  : "行情自动更新 · 15 秒"}
+            </Tag>
           </>
         }
       />

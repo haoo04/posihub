@@ -12,6 +12,7 @@ import type {
   AccountSnapshot,
   AccountSyncStatus,
   Exchange,
+  ExchangeConnection,
   FifoCloseResponse,
   Health,
   HistoryImportCommitResponse,
@@ -38,6 +39,7 @@ import type {
   PositionOrderWithPnL,
   PositionSnapshot,
   PositionSplit,
+  PositionPrices,
   PositionMarket,
   SpecifiedCloseRequest,
   SymbolMapping,
@@ -47,9 +49,12 @@ export const queryKeys = {
   health: ["health"] as const,
   overview: ["overview"] as const,
   exchanges: ["exchanges"] as const,
+  exchangeConnections: ["exchange-connections"] as const,
   accounts: ["accounts"] as const,
   positions: (view: "split" | "merged", market: PositionMarket = "derivatives") =>
     ["positions", view, market] as const,
+  positionPrices: (view: "split" | "merged", market: PositionMarket) =>
+    ["position-prices", view, market] as const,
   positionOrders: (positionId?: number) =>
     positionId ? ["position-orders", positionId] : ["position-orders"] as const,
   positionMatches: (positionId: number) =>
@@ -104,6 +109,30 @@ export function useExchanges() {
   });
 }
 
+export function useExchangeConnections() {
+  return useQuery({
+    queryKey: queryKeys.exchangeConnections,
+    queryFn: async () =>
+      (await http.get<ExchangeConnection[]>('/api/v1/exchange-connections')).data,
+  });
+}
+
+export function useTestExchangeConnection() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (accountId: number) =>
+      (
+        await http.post<ExchangeConnection>(
+          `/api/v1/exchange-connections/${accountId}/test`
+        )
+      ).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.exchangeConnections });
+      qc.invalidateQueries({ queryKey: queryKeys.accounts });
+    },
+  });
+}
+
 export function useCreateExchange() {
   const qc = useQueryClient();
   return useMutation({
@@ -131,6 +160,7 @@ export function useCreateAccount(
       (await http.post<Account>("/api/v1/accounts", payload)).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.accounts });
+      qc.invalidateQueries({ queryKey: queryKeys.exchangeConnections });
       qc.invalidateQueries({ queryKey: queryKeys.overview });
     },
     ...options,
@@ -148,7 +178,10 @@ export function useUpdateAccount(
   return useMutation({
     mutationFn: async ({ id, patch }) =>
       (await http.patch<Account>(`/api/v1/accounts/${id}`, patch)).data,
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.accounts }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.accounts });
+      qc.invalidateQueries({ queryKey: queryKeys.exchangeConnections });
+    },
     ...options,
   });
 }
@@ -162,6 +195,7 @@ export function useDeleteAccount() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.accounts });
+      qc.invalidateQueries({ queryKey: queryKeys.exchangeConnections });
       qc.invalidateQueries({ queryKey: queryKeys.overview });
     },
   });
@@ -236,6 +270,27 @@ export function usePositions<V extends "split" | "merged">(
       return resp.data;
     },
     placeholderData: (previous) => previous,
+  });
+}
+
+export function useLivePositionPrices(
+  view: "split" | "merged",
+  market: PositionMarket,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: queryKeys.positionPrices(view, market),
+    queryFn: async () =>
+      (
+        await http.get<PositionPrices>(
+          `/api/v1/positions/prices?view=${view}&market=${market}`
+        )
+      ).data,
+    enabled,
+    staleTime: 10_000,
+    refetchInterval: 15_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
 }
 

@@ -7,7 +7,7 @@ from typing import Optional
 
 from pydantic import Field
 
-from ..db.models import InstrumentType
+from ..db.models import AccountType, InstrumentType
 from .common import APIModel
 
 
@@ -21,6 +21,21 @@ class ExchangeRead(APIModel):
     name: str
     enabled: bool
     created_at: datetime
+
+
+class ExchangeConnectionRead(APIModel):
+    account_id: int
+    exchange_id: int
+    exchange_name: str
+    account_name: str
+    account_type: AccountType
+    enabled: bool
+    is_simulated: bool
+    api_key_masked: str | None = None
+    status: str = "unknown"
+    last_test_at: datetime | None = None
+    latency_ms: float | None = None
+    message: str | None = None
 
 
 class SymbolMappingCreate(APIModel):

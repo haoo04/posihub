@@ -36,6 +36,28 @@ export interface Exchange {
   created_at: string;
 }
 
+export type ExchangeConnectionStatus =
+  | "connected"
+  | "error"
+  | "not_configured"
+  | "unknown"
+  | "simulated";
+
+export interface ExchangeConnection {
+  account_id: number;
+  exchange_id: number;
+  exchange_name: string;
+  account_name: string;
+  account_type: AccountType;
+  enabled: boolean;
+  is_simulated: boolean;
+  api_key_masked: string | null;
+  status: ExchangeConnectionStatus;
+  last_test_at: string | null;
+  latency_ms: number | null;
+  message: string | null;
+}
+
 export interface Account {
   id: number;
   exchange_id: number;
@@ -100,6 +122,20 @@ export interface PositionMerged {
   notional: number;
   accounts: number[];
   instrument_type?: InstrumentType | null;
+}
+
+export interface PositionPrice {
+  position_id: number | null;
+  account_id: number | null;
+  canonical_symbol: string;
+  price: number;
+  updated_at: string;
+}
+
+export interface PositionPrices {
+  prices: PositionPrice[];
+  fetched_at: string;
+  failed_exchanges: string[];
 }
 
 export interface PnlPoint {

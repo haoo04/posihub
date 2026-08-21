@@ -15,7 +15,12 @@ from ..db.models import (
     PositionOrder,
     PositionOrderMatch,
 )
-from ..schemas.position import PositionMerged, PositionRead
+from ..schemas.position import (
+    PositionMerged,
+    PositionPriceRead,
+    PositionPricesRead,
+    PositionRead,
+)
 from ..schemas.position_order import (
     FifoCloseResponse,
     PositionCloseExecutionRead,
@@ -28,6 +33,7 @@ from ..services.aggregate.position_aggregator import (
     PositionInput,
     aggregate_positions,
 )
+from ..services.live_prices import fetch_live_position_prices
 from ..services.pnl_calculator import (
     base_asset_from_canonical,
     is_coin_margined_account,
@@ -37,15 +43,29 @@ from ..services.position_market import (
     instrument_type_from_canonical,
     position_matches_market,
 )
-from ..services.realized_pnl_query import realized_pnl_totals_by_position_id
 from ..services.position_order_close import (
     FifoCloseError,
     fifo_close_position,
     specified_close_position,
 )
+from ..services.realized_pnl_query import realized_pnl_totals_by_position_id
 from .deps import SessionDep
 
 router = APIRouter(prefix="/api/v1/positions", tags=["positions"])
+
+
+@router.get("/prices", response_model=PositionPricesRead)
+def list_live_prices(
+    session: SessionDep,
+    view: str = Query("split", pattern="^(split|merged)$"),
+    market: str = Query("derivatives", pattern="^(derivatives|spot)$"),
+) -> PositionPricesRead:
+    result = fetch_live_position_prices(session, view=view, market=market)
+    return PositionPricesRead(
+        prices=[PositionPriceRead.model_validate(item) for item in result.prices],
+        fetched_at=result.fetched_at,
+        failed_exchanges=result.failed_exchanges,
+    )
 
 
 @router.get("", response_model=list[Any])
