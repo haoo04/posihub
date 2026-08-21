@@ -3,9 +3,9 @@ import { PnlText } from "./PnlText";
 import { fmtQty, fmtSigned } from "@/utils/format";
 
 interface OrderPnlDisplayProps {
-  /** Primary value in settlement coin for coin-margined; USDT otherwise. */
+  /** Legacy/native settlement value, shown only in the coin tooltip. */
   nativeValue: number | null | undefined;
-  /** USDT equivalent (hover for coin-margined). */
+  /** Canonical primary value in USDT. */
   usdtValue: number | null | undefined;
   asset: string | null | undefined;
   coinMargined: boolean;
@@ -25,21 +25,15 @@ export function OrderPnlDisplay({
   asset,
   coinMargined,
 }: OrderPnlDisplayProps) {
-  if (!coinMargined || !asset) {
-    return <PnlText value={usdtValue ?? nativeValue} />;
-  }
-
   const native = nativeValue ?? 0;
   const usdt = usdtValue ?? 0;
-  const body = (
-    <span className="posi-numeric" style={{ fontWeight: 500 }}>
-      {formatNative(native, asset)}
-    </span>
-  );
+  const primary = <PnlText value={usdtValue ?? nativeValue} suffix="USDT" />;
+
+  if (!coinMargined || !asset) return primary;
 
   return (
-    <Tooltip title={`≈ ${fmtSigned(usdt)} USDT`}>
-      {body}
+    <Tooltip title={`结算币: ${formatNative(native, asset)} · ${fmtSigned(usdt)} USDT`}>
+      {primary}
     </Tooltip>
   );
 }

@@ -93,7 +93,7 @@ export function PnlPage() {
         {
           type: "value",
           scale: true,
-          name: "未实现盈亏",
+          name: "未实现盈亏 (USDT)",
           nameTextStyle: { color: POSI_PALETTE.textMuted, fontSize: 11 },
           splitLine: { show: false },
           axisLabel: { formatter: (v: number) => fmtCompact(v) },
@@ -122,7 +122,7 @@ export function PnlPage() {
           },
         },
         {
-          name: "未实现盈亏",
+        name: "未实现盈亏 (USDT)",
           type: "bar",
           yAxisIndex: 1,
           data: upnl,
@@ -141,7 +141,7 @@ export function PnlPage() {
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
       <PageHeader
         title="盈亏"
-        description="基于每日快照的权益曲线与未实现盈亏柱状对照"
+        description="基于每日快照的 USDT 权益曲线与未实现盈亏柱状对照"
       />
 
       <Segmented

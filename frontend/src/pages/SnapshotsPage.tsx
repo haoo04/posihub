@@ -103,7 +103,7 @@ export function SnapshotsPage() {
       title: "未实现盈亏",
       dataIndex: "total_unrealized_pnl",
       align: "right" as const,
-      render: (v: number) => <PnlText value={v} />,
+      render: (v: number) => <PnlText value={v} suffix="USDT" />,
     },
     {
       title: "可用",
@@ -163,7 +163,7 @@ export function SnapshotsPage() {
       title: "未实现盈亏",
       dataIndex: "unrealized_pnl",
       align: "right" as const,
-      render: (v: number) => <PnlText value={v} />,
+      render: (v: number) => <PnlText value={v} suffix="USDT" />,
     },
   ];
 

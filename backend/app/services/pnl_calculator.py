@@ -44,23 +44,39 @@ def settlement_coin_to_usdt(pnl_coin: float, mark_price: float) -> float:
     return pnl_coin * mark_price
 
 
+def raw_position_unrealized_pnl_to_usdt(
+    *,
+    account_type: AccountType | None,
+    unrealized_pnl: float,
+    mark_price: float,
+) -> float:
+    """Convert one exchange position response into the storage unit (USDT).
+
+    Bitget's inverse endpoint reports PnL in the contract settlement coin;
+    linear endpoints report it in USDT.  This is the single sync-boundary
+    conversion.  ``positions_current.unrealized_pnl`` and all API/snapshot
+    values are otherwise already USDT.
+    """
+
+    if account_type is not None and is_coin_margined_account(account_type):
+        return settlement_coin_to_usdt(unrealized_pnl, mark_price)
+    return unrealized_pnl
+
+
 def position_unrealized_pnl_usdt(
     *,
     account_type: AccountType | None,
     side: PositionSide,
     unrealized_pnl: float,
     mark_price: float,
-    has_position_orders: bool,
+    has_position_orders: bool | None = None,
 ) -> float:
-    """Normalize position-level unrealized PnL to USDT for API responses.
+    """Return the canonical stored position PnL in USDT.
 
-    When order legs exist, unrealized PnL is already derived via the linear
-    USDT formula. Otherwise, for coin-margined accounts synced from the
-    exchange, the stored value is treated as settlement coin.
+    ``has_position_orders`` remains accepted for source compatibility with
+    older callers, but is intentionally ignored.  Inferring units from child
+    rows was the source of the coin-margined dashboard bug.
     """
 
-    if account_type is None or not is_coin_margined_account(account_type):
-        return unrealized_pnl
-    if has_position_orders:
-        return unrealized_pnl
-    return settlement_coin_to_usdt(unrealized_pnl, mark_price)
+    del account_type, side, mark_price, has_position_orders
+    return unrealized_pnl

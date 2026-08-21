@@ -152,7 +152,6 @@ def simulate(
     unmapped_symbols: set[str] = set()
 
     for key, group_orders in grouped.items():
-        canonical = group_orders[0].canonical_symbol
         side = group_orders[0].side
 
         legs: list[_Leg] = []
@@ -181,6 +180,7 @@ def simulate(
                 order_placed_at=order.order_placed_at,
                 dedup_status=DedupStatus.NEW,
                 realized_pnl=order.realized_pnl,
+                time_source=order.time_source,
             )
 
             if order.canonical_symbol is None:

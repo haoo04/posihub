@@ -53,7 +53,6 @@ def get_overview(session: SessionDep) -> OverviewResponse:
             side=p.side,
             unrealized_pnl=float(p.unrealized_pnl or 0.0),
             mark_price=float(p.mark_price or 0.0),
-            has_position_orders=False,
         )
     last_sync_at: Optional[datetime] = max(
         (a.last_sync_at for a in accounts if a.last_sync_at is not None), default=None

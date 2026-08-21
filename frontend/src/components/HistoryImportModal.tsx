@@ -117,6 +117,9 @@ export function HistoryImportModal({ open, account, onClose }: Props) {
           {row.order_placed_at && row.order_placed_at !== v ? (
             <Text type="secondary">委托 {fmtDateTime(row.order_placed_at)}</Text>
           ) : null}
+          {row.time_source === "order_update" ? (
+            <Text type="warning">成交时间缺失，使用订单更新时间（低置信度）</Text>
+          ) : null}
         </Space>
       ),
     },
@@ -256,6 +259,20 @@ export function HistoryImportModal({ open, account, onClose }: Props) {
               <Statistic
                 title="盈亏校验告警"
                 value={summary?.pnl_validation_warnings ?? 0}
+              />
+              <Statistic
+                title="成交时间未解析"
+                value={summary?.unresolved_fill_time ?? 0}
+                valueStyle={{ color: (summary?.unresolved_fill_time ?? 0) > 0 ? "#cf1322" : undefined }}
+              />
+              <Statistic
+                title="低置信度时间"
+                value={summary?.fallback_time_orders ?? 0}
+                valueStyle={{ color: (summary?.fallback_time_orders ?? 0) > 0 ? "#d46b08" : undefined }}
+              />
+              <Statistic
+                title="越界已过滤"
+                value={summary?.filtered_out_of_scope ?? 0}
               />
             </Space>
 

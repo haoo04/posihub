@@ -21,7 +21,10 @@ from ...db.models import (
     PositionOrderStatus,
     PositionSide,
 )
-from ..position_order_close import fifo_close_position
+from ..position_order_close import (
+    fifo_close_position,
+    refresh_account_positions_from_orders,
+)
 from .classifier import load_local_state
 from .simulator import simulate
 from .types import DedupStatus, ImportAction, NormalizedHistoryOrder
@@ -151,4 +154,5 @@ def commit_history_import(
                 )
                 result.created_closes += 1
 
+    refresh_account_positions_from_orders(session, account_id, now=now)
     return result

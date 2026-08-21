@@ -340,6 +340,16 @@ class ManualEntry(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
+class DataMigration(SQLModel, table=True):
+    """Idempotency ledger for one-time, operator-run data repairs."""
+
+    __tablename__ = "data_migrations"
+
+    key: str = Field(primary_key=True, max_length=128)
+    details_json: str = Field(default="{}")
+    applied_at: datetime = Field(default_factory=_utcnow)
+
+
 # ---------------------------------------------------------------------------
 # History import preview cache
 # ---------------------------------------------------------------------------

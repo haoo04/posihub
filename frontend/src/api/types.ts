@@ -464,6 +464,7 @@ export interface OrderPreviewRead {
   order_placed_at: string | null;
   dedup_status: ImportDedupStatus;
   realized_pnl: number | null;
+  time_source: "trade_fill" | "order_update";
   matches: PlannedMatchRead[];
   note: string | null;
 }
@@ -488,6 +489,9 @@ export interface ImportSummaryRead {
   conflicts: number;
   orphans: number;
   pnl_validation_warnings: number;
+  unresolved_fill_time: number;
+  filtered_out_of_scope: number;
+  fallback_time_orders: number;
 }
 
 export interface HistoryImportPreviewResponse {

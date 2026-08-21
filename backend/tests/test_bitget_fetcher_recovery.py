@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from app.services.exchange.base import RawPosition
+from app.db.models import AccountType
 from app.services.history_import.bitget_fetcher import fetch_bitget_history
 from app.services.history_import.normalize_bitget import (
     aggregate_bitget_trades_to_order_raw,
@@ -66,6 +67,20 @@ class _FakeClient:
 class _FakeMapper:
     def resolve(self, exchange, raw_symbol, **kwargs):
         return None
+
+
+class _ScopeMapper:
+    def list_raw_symbols(self, exchange, *, quote_asset=None):
+        return set()
+
+    def resolve(self, exchange, raw_symbol, **kwargs):
+        if "/USDT" in raw_symbol:
+            return type("Resolved", (), {"canonical": "LINK-USDT-PERP"})()
+        return type("Resolved", (), {"canonical": "BTC-USD-PERP"})()
+
+
+class _ScopeClient(_FakeClient):
+    pass
 
 
 def test_aggregate_trades_builds_order_raw() -> None:
@@ -170,6 +185,45 @@ def test_fetcher_excludes_fills_outside_user_window() -> None:
     assert orders[0].source_order_id == "new"
 
 
+def test_known_out_of_window_fill_cannot_fallback_to_update_time() -> None:
+    since = _ms(2026, 5, 28)
+    until = _ms(2026, 5, 31)
+    order = {
+        "id": "outside-fill",
+        "symbol": "ETH/USDT:USDT",
+        "filled": 1.0,
+        "average": 2_000.0,
+        "side": "buy",
+        "info": {
+            "orderId": "outside-fill",
+            "tradeSide": "open",
+            "posSide": "long",
+            "uTime": str(_ms(2026, 5, 29)),
+        },
+    }
+    trade = {
+        "id": "outside-fill-row",
+        "order": "outside-fill",
+        "symbol": "ETH/USDT:USDT",
+        "timestamp": _ms(2026, 5, 20),
+        "side": "buy",
+        "amount": 1.0,
+        "price": 2_000.0,
+        "info": {"orderId": "outside-fill", "tradeSide": "open", "posSide": "long"},
+    }
+    client = _FakeClient(trades=[trade], orders=[order])
+
+    result = fetch_bitget_history(
+        client,
+        _FakeMapper(),
+        exchange_name="bitget",
+        since_ms=since,
+        until_ms=until,
+    )
+
+    assert result.orders == []
+
+
 def test_open_position_symbol_included_when_closed_history_has_other_symbols() -> None:
     """SPY still open: must fetch SPY fills even if only ETH closed in range."""
 
@@ -233,3 +287,138 @@ def test_trade_index_maps_symbols_for_recovery() -> None:
     index = build_order_trade_index(trades)
     assert index.symbols["42"] == "BTC/USDT:USDT"
     assert "42" in index.trades_by_order
+
+
+def test_pre_window_link_order_is_selected_by_fill_time() -> None:
+    since = _ms(2026, 8, 20, 4, 40)
+    until = _ms(2026, 8, 20, 4, 43)
+    placed = _ms(2026, 8, 20, 0, 52)
+    filled = _ms(2026, 8, 20, 4, 42) + 22_000
+    trade = {
+        "id": "fill-link-1",
+        "order": "link-order-1",
+        "symbol": "LINK/USDT:USDT",
+        "timestamp": filled,
+        "side": "buy",
+        "amount": 1.0,
+        "price": 12.5,
+        "info": {
+            "orderId": "link-order-1",
+            "productType": "USDT-FUTURES",
+            "tradeSide": "open",
+            "posSide": "long",
+            "cTime": str(placed),
+        },
+    }
+    order = {
+        "id": "link-order-1",
+        "symbol": "LINK/USDT:USDT",
+        "filled": 1.0,
+        "average": 12.5,
+        "side": "buy",
+        "info": {
+            "orderId": "link-order-1",
+            "productType": "USDT-FUTURES",
+            "tradeSide": "open",
+            "posSide": "long",
+            "cTime": str(placed),
+            "uTime": str(placed),
+        },
+    }
+    client = _ScopeClient(trades=[trade], orders=[order])
+    result = fetch_bitget_history(
+        client,
+        _ScopeMapper(),
+        exchange_name="bitget",
+        since_ms=since,
+        until_ms=until,
+        account_type=AccountType.USDT_PERP,
+    )
+
+    assert [row.source_order_id for row in result.orders] == ["link-order-1"]
+    assert result.orders[0].created_at == datetime.fromtimestamp(
+        filled / 1000, tz=timezone.utc
+    ).replace(tzinfo=None)
+    assert result.orders[0].time_source == "trade_fill"
+    assert result.stats.fallback_time_orders == 0
+
+
+def test_history_filters_other_bitget_product() -> None:
+    since = _ms(2026, 8, 20, 4, 40)
+    until = _ms(2026, 8, 20, 4, 43)
+    usdt_order = {
+        "id": "linear-order",
+        "symbol": "BTC/USDT:USDT",
+        "filled": 1.0,
+        "average": 60_000.0,
+        "side": "buy",
+        "info": {
+            "orderId": "linear-order",
+            "productType": "USDT-FUTURES",
+            "marginCoin": "USDT",
+            "tradeSide": "open",
+            "posSide": "long",
+            "uTime": str(since + 1_000),
+        },
+    }
+    coin_order = {
+        "id": "inverse-order",
+        "symbol": "BTC/USD:BTC",
+        "filled": 1.0,
+        "average": 60_000.0,
+        "side": "buy",
+        "info": {
+            "orderId": "inverse-order",
+            "productType": "COIN-FUTURES",
+            "marginCoin": "BTC",
+            "tradeSide": "open",
+            "posSide": "long",
+            "uTime": str(since + 2_000),
+        },
+    }
+    trades = [
+        {
+            "id": "linear-fill",
+            "order": "linear-order",
+            "symbol": "BTC/USDT:USDT",
+            "timestamp": since + 1_000,
+            "amount": 1.0,
+            "price": 60_000.0,
+            "side": "buy",
+            "info": {
+                "orderId": "linear-order",
+                "productType": "USDT-FUTURES",
+                "tradeSide": "open",
+                "posSide": "long",
+            },
+        },
+        {
+            "id": "inverse-fill",
+            "order": "inverse-order",
+            "symbol": "BTC/USD:BTC",
+            "timestamp": since + 2_000,
+            "amount": 1.0,
+            "price": 60_000.0,
+            "side": "buy",
+            "info": {
+                "orderId": "inverse-order",
+                "productType": "COIN-FUTURES",
+                "tradeSide": "open",
+                "posSide": "long",
+            },
+        },
+    ]
+    client = _ScopeClient(trades=trades, orders=[usdt_order, coin_order])
+
+    result = fetch_bitget_history(
+        client,
+        _ScopeMapper(),
+        exchange_name="bitget",
+        since_ms=since,
+        until_ms=until,
+        account_type=AccountType.COIN_PERP,
+    )
+
+    assert [row.source_order_id for row in result.orders] == ["inverse-order"]
+    assert result.orders[0].canonical_symbol == "BTC-USD-PERP"
+    assert result.stats.filtered_out_of_scope > 0

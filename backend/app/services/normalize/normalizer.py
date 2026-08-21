@@ -6,14 +6,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
 from sqlmodel import Session, select
 
 from ...db.models import (
     AccountBalanceCurrent,
+    AccountType,
     DataSource,
     InstrumentType,
     PositionCloseExecution,
@@ -22,7 +19,12 @@ from ...db.models import (
     PositionSide,
 )
 from ..exchange.base import RawBalance, RawPosition
+from ..pnl_calculator import raw_position_unrealized_pnl_to_usdt
 from .symbol_mapper import CanonicalSymbol, SymbolMapper
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 @dataclass(slots=True)
@@ -90,6 +92,7 @@ def normalize_positions(
     mapper: SymbolMapper,
     source: DataSource = DataSource.API,
     instrument_hint: str = "perp",
+    account_type: AccountType | None = None,
     unmapped: Optional[list[str]] = None,
 ) -> list[NormalizedPosition]:
     """Map raw positions to :class:`NormalizedPosition`.
@@ -134,7 +137,11 @@ def normalize_positions(
                 qty=raw.qty,
                 entry_price=raw.entry_price,
                 mark_price=raw.mark_price,
-                unrealized_pnl=raw.unrealized_pnl,
+                unrealized_pnl=raw_position_unrealized_pnl_to_usdt(
+                    account_type=account_type,
+                    unrealized_pnl=raw.unrealized_pnl,
+                    mark_price=raw.mark_price,
+                ),
                 leverage=raw.leverage,
                 margin_mode=raw.margin_mode,
                 source=source,

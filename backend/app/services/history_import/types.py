@@ -40,11 +40,12 @@ class NormalizedHistoryOrder:
     action: ImportAction
     qty: float
     price: float
-    created_at: datetime  # fill time for FIFO; falls back to order update/placement
+    created_at: datetime  # execution time; order update is a low-confidence fallback
     canonical_symbol: Optional[str] = None
     order_placed_at: Optional[datetime] = None  # 委托时间 (display / audit only)
     realized_pnl: Optional[float] = None
     margin_mode: Optional[str] = None
+    time_source: str = "trade_fill"  # trade_fill / order_update
 
     @property
     def group_key(self) -> tuple[str, str]:
@@ -95,6 +96,7 @@ class OrderPreview:
     dedup_status: DedupStatus
     order_placed_at: Optional[datetime] = None
     realized_pnl: Optional[float] = None
+    time_source: str = "trade_fill"
     matches: list[PlannedMatch] = field(default_factory=list)
     note: Optional[str] = None
 
@@ -108,6 +110,35 @@ class ImportSummary:
     conflicts: int = 0
     orphans: int = 0
     pnl_validation_warnings: int = 0
+    unresolved_fill_time: int = 0
+    filtered_out_of_scope: int = 0
+    fallback_time_orders: int = 0
+
+
+@dataclass(slots=True)
+class HistoryFetchStats:
+    """Diagnostics that make an empty/partial preview explainable."""
+
+    unresolved_fill_time: int = 0
+    filtered_out_of_scope: int = 0
+    fallback_time_orders: int = 0
+    fetched_orders: int = 0
+    fetched_trades: int = 0
+
+
+@dataclass(slots=True)
+class HistoryFetchResult:
+    """Fetcher result with diagnostics and backwards-compatible iteration."""
+
+    orders: list[NormalizedHistoryOrder] = field(default_factory=list)
+    closed_positions: list[ClosedPositionSummary] = field(default_factory=list)
+    stats: HistoryFetchStats = field(default_factory=HistoryFetchStats)
+
+    def __iter__(self):
+        # Existing callers unpacked ``orders, closed_positions``.  Keep that
+        # API while exposing ``.stats`` to the route and newer callers.
+        yield self.orders
+        yield self.closed_positions
 
 
 @dataclass(slots=True)

@@ -187,7 +187,7 @@ export function ManualEntryPage() {
               </Form.Item>
             </Col>
             <Col xs={24} md={8}>
-              <Form.Item label="未实现盈亏" name="total_unrealized_pnl">
+              <Form.Item label="未实现盈亏（USDT）" name="total_unrealized_pnl">
                 <InputNumber style={{ width: "100%" }} placeholder="0" />
               </Form.Item>
             </Col>
@@ -369,7 +369,7 @@ export function ManualEntryPage() {
                       <Col span={3}>
                         <Form.Item
                           name={[field.name, "unrealized_pnl"]}
-                          label="未实现盈亏"
+                          label="未实现盈亏（USDT）"
                           style={{ marginBottom: 0 }}
                         >
                           <InputNumber

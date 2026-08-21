@@ -32,6 +32,7 @@ def order_to_dict(order: NormalizedHistoryOrder) -> dict[str, Any]:
         "order_placed_at": _dt_to_iso(order.order_placed_at),
         "realized_pnl": order.realized_pnl,
         "margin_mode": order.margin_mode,
+        "time_source": order.time_source,
     }
 
 
@@ -48,6 +49,7 @@ def order_from_dict(data: dict[str, Any]) -> NormalizedHistoryOrder:
         order_placed_at=_iso_to_dt(data.get("order_placed_at")),
         realized_pnl=data.get("realized_pnl"),
         margin_mode=data.get("margin_mode"),
+        time_source=data.get("time_source", "trade_fill"),
     )
 
 

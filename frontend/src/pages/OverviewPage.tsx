@@ -163,12 +163,13 @@ export function OverviewPage() {
             value={
               <PnlText
                 value={overview.data?.total_unrealized_pnl ?? 0}
+                suffix="USDT"
                 weight={600}
               />
             }
             hint={
               <span>
-                {t("overview.realized")} <PnlText value={realizedTotal} />
+                {t("overview.realized")} <PnlText value={realizedTotal} suffix="USDT" />
               </span>
             }
             accent={
@@ -330,10 +331,10 @@ export function OverviewPage() {
                     {fmtPrice(p.mark_price)}
                   </td>
                   <td style={tdStyle}>
-                    <PnlText value={p.unrealized_pnl} />
+                    <PnlText value={p.unrealized_pnl} suffix="USDT" />
                   </td>
                   <td style={tdStyle}>
-                    <PnlText value={p.realized_pnl} />
+                    <PnlText value={p.realized_pnl} suffix="USDT" />
                   </td>
                 </tr>
               ))}

@@ -36,6 +36,7 @@ class OrderPreviewRead(APIModel):
     dedup_status: str
     order_placed_at: Optional[datetime] = None
     realized_pnl: Optional[float] = None
+    time_source: str = "trade_fill"
     matches: list[PlannedMatchRead] = []
     note: Optional[str] = None
 
@@ -60,6 +61,9 @@ class ImportSummaryRead(APIModel):
     conflicts: int = 0
     orphans: int = 0
     pnl_validation_warnings: int = 0
+    unresolved_fill_time: int = 0
+    filtered_out_of_scope: int = 0
+    fallback_time_orders: int = 0
 
 
 class HistoryImportPreviewResponse(APIModel):

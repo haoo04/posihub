@@ -63,14 +63,13 @@ def list_positions(
         if a.id is not None
     }
     order_counts: dict[int, int] = {
-        int(pid): int(cnt)
-        for pid, cnt in session.exec(
+        int(pid): int(count)
+        for pid, count in session.exec(
             select(PositionOrder.position_id, func.count())
             .group_by(PositionOrder.position_id)
         ).all()
         if pid is not None
     }
-
     rows = [
         r
         for r in all_rows
@@ -84,7 +83,6 @@ def list_positions(
         for r in rows:
             pid = int(r.id or 0)
             account = accounts.get(int(r.account_id))
-            has_orders = order_counts.get(pid, 0) > 0
             mark = float(r.mark_price or 0.0)
             entry = float(r.entry_price or 0.0)
             upnl = position_unrealized_pnl_usdt(
@@ -92,10 +90,9 @@ def list_positions(
                 side=r.side,
                 unrealized_pnl=float(r.unrealized_pnl or 0.0),
                 mark_price=mark,
-                has_position_orders=has_orders,
             )
             instrument = instrument_type_from_canonical(r.canonical_symbol)
-            has_cost_basis = has_orders or entry > 0
+            has_cost_basis = order_counts.get(pid, 0) > 0 or entry > 0
             if instrument.value == "spot" and not has_cost_basis:
                 upnl = 0.0
 
@@ -126,7 +123,6 @@ def list_positions(
                 side=r.side,
                 unrealized_pnl=float(r.unrealized_pnl or 0.0),
                 mark_price=float(r.mark_price or 0.0),
-                has_position_orders=order_counts.get(int(r.id or 0), 0) > 0,
             ),
             realized_pnl=float(realized_by_pos.get(int(r.id or 0), 0.0)),
         )
