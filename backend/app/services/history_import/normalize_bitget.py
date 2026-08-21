@@ -23,6 +23,7 @@ class TradeIndex:
     fill_times: dict[str, datetime] = field(default_factory=dict)
     symbols: dict[str, str] = field(default_factory=dict)
     trades_by_order: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    trade_ids: set[str] = field(default_factory=set)
 
 
 def _ms_to_naive_utc(value: Any) -> Optional[datetime]:
@@ -141,6 +142,12 @@ def build_order_trade_index(raw_trades: list[dict[str, Any]]) -> TradeIndex:
         if not isinstance(raw, dict):
             continue
         info = raw.get("info") if isinstance(raw.get("info"), dict) else {}
+        trade_id = raw.get("id") or info.get("tradeId") or info.get("execId")
+        if trade_id is not None:
+            dedup_key = str(trade_id)
+            if dedup_key in index.trade_ids:
+                continue
+            index.trade_ids.add(dedup_key)
         order_id = raw.get("order") or info.get("orderId")
         if order_id is None:
             continue
@@ -308,13 +315,14 @@ def normalize_bitget_order(
         _ms_to_naive_utc(info.get("cTime"))
         or _ms_to_naive_utc(raw.get("timestamp"))
     )
-    # ``created_at`` is the FIFO sort key: prefer trade fill time, then the
-    # order update time (closer to fill), then placement time.
-    created_at = (
-        fill_time
-        or _ms_to_naive_utc(info.get("uTime"))
-        or order_placed_at
+    # ``created_at`` is the FIFO sort key.  Placement time is deliberately not
+    # a fallback: an order can be placed before the requested range and fill
+    # inside it.  An order update is retained only as an explicitly marked,
+    # low-confidence fallback when the fill endpoint did not return a row.
+    update_time = _ms_to_naive_utc(info.get("uTime")) or _ms_to_naive_utc(
+        raw.get("lastTradeTimestamp")
     )
+    created_at = fill_time or update_time
     if created_at is None:
         return None
 
@@ -337,6 +345,7 @@ def normalize_bitget_order(
         order_placed_at=order_placed_at,
         realized_pnl=realized_pnl,
         margin_mode=_norm_margin_mode(raw.get("marginMode") or info.get("marginMode")),
+        time_source="trade_fill" if fill_time is not None else "order_update",
     )
 
 

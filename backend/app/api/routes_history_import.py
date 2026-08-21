@@ -15,7 +15,6 @@ from ..db.models import (
     AccountType,
     Exchange,
     HistoryImportPreview,
-    PositionSide,
 )
 from ..schemas.history_import import (
     HistoryImportCommitRequest,
@@ -35,6 +34,7 @@ from ..services.history_import.serialization import (
     order_to_dict,
     closed_position_to_dict,
 )
+from ..services.history_import.scope import canonical_matches_bitget_product
 from ..services.history_import.simulator import simulate
 from ..services.normalize.symbol_mapper import SymbolMapper
 from .deps import SessionDep
@@ -124,12 +124,13 @@ def preview_history_import(
 
     mapper = SymbolMapper(session)
     try:
-        orders, closed_positions = fetch_bitget_history(
+        fetch_result = fetch_bitget_history(
             client,
             mapper,
             exchange_name=exchange_name,
             since_ms=_to_ms(payload.since),
             until_ms=_to_ms(payload.until),
+            account_type=account.account_type,
         )
     except Exception as exc:  # noqa: BLE001
         _logger.exception("history fetch failed for account %s", account_id)
@@ -137,11 +138,22 @@ def preview_history_import(
     finally:
         client.close()
 
+    if isinstance(fetch_result, tuple):  # compatibility with older test adapters
+        orders, closed_positions = fetch_result
+        fetch_stats = None
+    else:
+        orders = fetch_result.orders
+        closed_positions = fetch_result.closed_positions
+        fetch_stats = fetch_result.stats
     local_state = load_local_state(session, account_id)
     preview = simulate(orders, local_state, closed_positions=closed_positions)
     preview.summary.pnl_validation_warnings = _pnl_validation_warnings(
         preview, closed_positions
     )
+    if fetch_stats is not None:
+        preview.summary.unresolved_fill_time = fetch_stats.unresolved_fill_time
+        preview.summary.filtered_out_of_scope = fetch_stats.filtered_out_of_scope
+        preview.summary.fallback_time_orders = fetch_stats.fallback_time_orders
 
     preview_id = uuid.uuid4().hex
     now = _utcnow()
@@ -188,7 +200,7 @@ def commit_history_import_endpoint(
     payload: HistoryImportCommitRequest,
     session: SessionDep,
 ) -> HistoryImportCommitResponse:
-    _require_backfillable_account(session, account_id)
+    account = _require_backfillable_account(session, account_id)
 
     cached = session.get(HistoryImportPreview, payload.preview_id)
     if cached is None or cached.account_id != account_id:
@@ -200,6 +212,21 @@ def commit_history_import_endpoint(
 
     data = json.loads(cached.payload_json)
     orders = [order_from_dict(d) for d in data.get("orders", [])]
+
+    # The preview is cached for up to 30 minutes.  Re-check the account scope
+    # at commit time so an account-type edit or a stale/malicious cache cannot
+    # write the other Bitget product into this ledger.
+    for order in orders:
+        if order.canonical_symbol and not canonical_matches_bitget_product(
+            order.canonical_symbol, account.account_type
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"cached order {order.source_order_id} is outside "
+                    f"the {account.account_type.value} product scope"
+                ),
+            )
 
     try:
         result = commit_history_import(session, account_id=account_id, orders=orders)

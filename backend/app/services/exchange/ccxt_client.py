@@ -48,6 +48,34 @@ def _iter_time_windows(
         start = end
 
 
+def _history_row_key(raw: Any, *, kind: str) -> str | None:
+    """Return a stable exchange id for cross-window/page de-duplication."""
+
+    if not isinstance(raw, dict):
+        return None
+    info = raw.get("info") if isinstance(raw.get("info"), dict) else {}
+    if kind == "trade":
+        value = raw.get("id") or info.get("tradeId") or info.get("execId")
+    else:
+        value = raw.get("id") or info.get("orderId")
+    return str(value) if value is not None and str(value) else None
+
+
+def _deduplicate_history_rows(rows: list[dict[str, Any]], *, kind: str) -> list[dict[str, Any]]:
+    """Keep one row per order/trade id while preserving exchange order."""
+
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in rows:
+        key = _history_row_key(raw, kind=kind)
+        if key is not None:
+            if key in seen:
+                continue
+            seen.add(key)
+        out.append(raw)
+    return out
+
+
 def bitget_fetch_params(exchange_name: str, default_sub_type: Optional[str]) -> dict[str, Any]:
     """Explicit Bitget ``productType`` for balance/position API calls."""
 
@@ -333,6 +361,7 @@ class CcxtExchangeClient(ExchangeClient):
         out: list[dict[str, Any]] = []
         for window_since, window_until in _iter_time_windows(since, until):
             params = dict(self._fetch_params())
+            params["paginate"] = True
             if window_until is not None:
                 params["until"] = window_until
             try:
@@ -350,7 +379,7 @@ class CcxtExchangeClient(ExchangeClient):
                 )
                 continue
             out.extend(batch or [])
-        return out
+        return _deduplicate_history_rows(out, kind="order")
 
     def fetch_closed_orders_history(
         self,
@@ -371,6 +400,10 @@ class CcxtExchangeClient(ExchangeClient):
         for symbol in target_symbols:
             for window_since, window_until in _iter_time_windows(since, until):
                 params = dict(self._fetch_params())
+                # CCXT's built-in paginator follows Bitget's cursor until the
+                # endpoint is exhausted.  The surrounding time windows still
+                # protect the exchange's maximum 90-day range.
+                params["paginate"] = True
                 if window_until is not None:
                     params["until"] = window_until
                 try:
@@ -389,7 +422,7 @@ class CcxtExchangeClient(ExchangeClient):
                     )
                     continue
                 out.extend(batch or [])
-        return out
+        return _deduplicate_history_rows(out, kind="order")
 
     def fetch_my_trades_history(
         self,
@@ -407,6 +440,7 @@ class CcxtExchangeClient(ExchangeClient):
         for symbol in target_symbols:
             for window_since, window_until in _iter_time_windows(since, until):
                 params = dict(self._fetch_params())
+                params["paginate"] = True
                 if window_until is not None:
                     params["until"] = window_until
                 try:
@@ -425,7 +459,7 @@ class CcxtExchangeClient(ExchangeClient):
                     )
                     continue
                 out.extend(batch or [])
-        return out
+        return _deduplicate_history_rows(out, kind="trade")
 
     def fetch_order(
         self,

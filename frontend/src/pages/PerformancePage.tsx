@@ -686,7 +686,11 @@ export function PerformancePage() {
               label="未实现盈亏"
               loading={summary.isLoading}
               value={
-                <PnlText value={data?.unrealized_pnl ?? 0} weight={600} />
+                <PnlText
+                  value={data?.unrealized_pnl ?? 0}
+                  suffix="USDT"
+                  weight={600}
+                />
               }
               hint="USDT"
               accent={

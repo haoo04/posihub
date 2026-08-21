@@ -27,6 +27,7 @@ from ..db.models import (
     PositionOrderStatus,
     PositionSide,
 )
+from .pnl_calculator import linear_unrealized_pnl_usdt
 
 QTY_EPSILON = 1e-9
 
@@ -153,10 +154,7 @@ def _refresh_position_fields_from_orders(
             continue
         ep = float(o.entry_price or 0.0)
         cost += rq * ep
-        if side == PositionSide.LONG:
-            upnl += (mark - ep) * rq
-        elif side == PositionSide.SHORT:
-            upnl += (ep - mark) * rq
+        upnl += linear_unrealized_pnl_usdt(side, ep, mark, rq)
 
     position.qty = total_rem
     position.unrealized_pnl = upnl

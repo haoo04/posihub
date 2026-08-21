@@ -117,6 +117,7 @@ def sync_account(session: Session, account: Account) -> SyncOutcome:
                 mapper=mapper,
                 source=DataSource.API,
                 instrument_hint=instrument_hint_for_account(account.account_type),
+                account_type=account.account_type,
                 unmapped=unmapped,
             )
         elif account.account_type == AccountType.FUNDING:

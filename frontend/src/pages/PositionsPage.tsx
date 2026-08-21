@@ -183,7 +183,7 @@ export function PositionsPage() {
           return (
             <PnlText
               value={pnl}
-              suffix={isCoinPerpPosition(record) ? "USDT" : undefined}
+              suffix="USDT"
             />
           );
         },
@@ -192,10 +192,10 @@ export function PositionsPage() {
         title: "已实现盈亏",
         dataIndex: "realized_pnl",
         align: "right" as const,
-        render: (v: number, record: PositionSplit) => (
+        render: (v: number) => (
           <PnlText
             value={v}
-            suffix={isCoinPerpPosition(record) ? "USDT" : undefined}
+            suffix="USDT"
           />
         ),
       },
@@ -388,7 +388,7 @@ export function PositionsPage() {
               ) : (
                 <PnlText
                   value={position.unrealized_pnl}
-                  suffix={isCoinPerpPosition(position) ? "USDT" : undefined}
+                  suffix="USDT"
                 />
               )}
             </div>
@@ -400,7 +400,7 @@ export function PositionsPage() {
             <div>
               <PnlText
                 value={position.realized_pnl}
-                suffix={isCoinPerpPosition(position) ? "USDT" : undefined}
+                suffix="USDT"
               />
             </div>
           </Col>
@@ -521,7 +521,7 @@ export function PositionsPage() {
               未实现盈亏
             </Text>
             <div>
-              <PnlText value={position.unrealized_pnl} />
+              <PnlText value={position.unrealized_pnl} suffix="USDT" />
             </div>
           </Col>
           <Col span={12}>
@@ -529,7 +529,7 @@ export function PositionsPage() {
               已实现盈亏
             </Text>
             <div>
-              <PnlText value={position.realized_pnl} />
+              <PnlText value={position.realized_pnl} suffix="USDT" />
             </div>
           </Col>
           <Col span={12}>

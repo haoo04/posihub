@@ -15,7 +15,12 @@ from app.services.history_import.types import ImportAction
 
 
 def _order(**info_overrides):
-    info = {"tradeSide": "open", "posSide": "long", "marginMode": "isolated"}
+    info = {
+        "tradeSide": "open",
+        "posSide": "long",
+        "marginMode": "isolated",
+        "uTime": 1700000000000,
+    }
     info.update(info_overrides.pop("info", {}))
     base = {
         "id": "100",

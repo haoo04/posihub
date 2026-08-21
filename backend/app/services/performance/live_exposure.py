@@ -44,7 +44,6 @@ def compute_live_exposure(
             side=pos.side,
             unrealized_pnl=float(pos.unrealized_pnl or 0.0),
             mark_price=float(pos.mark_price or 0.0),
-            has_position_orders=False,
         )
 
     return total_upnl, open_count

@@ -229,3 +229,21 @@ class SymbolMapper:
         self._session.add(row)
         self._cache[(exchange.lower(), raw_symbol)] = row
         return row
+
+    def list_raw_symbols(
+        self,
+        exchange: str,
+        *,
+        instrument_type: InstrumentType = InstrumentType.PERP,
+        quote_asset: Optional[str] = None,
+    ) -> set[str]:
+        """Return active persisted raw symbols suitable for history discovery."""
+
+        stmt = select(SymbolMapping).where(
+            SymbolMapping.exchange == exchange.lower(),
+            SymbolMapping.instrument_type == instrument_type,
+            SymbolMapping.is_active == True,  # noqa: E712
+        )
+        if quote_asset:
+            stmt = stmt.where(SymbolMapping.quote_asset == quote_asset.upper())
+        return {row.raw_symbol for row in self._session.exec(stmt).all()}
