@@ -46,3 +46,17 @@ class PositionMerged(APIModel):
 
 PositionView = Literal["split", "merged"]
 PositionMarket = Literal["derivatives", "spot"]
+
+
+class PositionPriceRead(APIModel):
+    position_id: int | None = None
+    account_id: int | None = None
+    canonical_symbol: str
+    price: float
+    updated_at: datetime
+
+
+class PositionPricesRead(APIModel):
+    prices: list[PositionPriceRead] = Field(default_factory=list)
+    fetched_at: datetime
+    failed_exchanges: list[str] = Field(default_factory=list)
