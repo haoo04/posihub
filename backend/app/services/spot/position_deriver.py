@@ -61,7 +61,8 @@ def derive_spot_positions(
     holdings = [
         b
         for b in balances
-        if b.equity > 0 and b.asset.upper() not in STABLECOIN_ASSETS
+        if (b.wallet_balance if b.wallet_balance is not None else b.equity) > 0
+        and b.asset.upper() not in STABLECOIN_ASSETS
     ]
     if not holdings:
         return []
@@ -79,7 +80,7 @@ def derive_spot_positions(
     out: list[NormalizedPosition] = []
     for bal, _base, quote, raw_symbol in requests:
         mark_price = float(prices.get(raw_symbol) or 0.0)
-        qty = float(bal.equity)
+        qty = float(bal.wallet_balance if bal.wallet_balance is not None else bal.equity)
         notional = qty * mark_price if mark_price > 0 else 0.0
         if threshold > 0 and notional > 0 and notional < threshold:
             continue

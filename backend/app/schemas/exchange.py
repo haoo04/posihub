@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional
+from typing import Any
 
 from pydantic import Field
 
@@ -36,6 +37,9 @@ class ExchangeConnectionRead(APIModel):
     last_test_at: datetime | None = None
     latency_ms: float | None = None
     message: str | None = None
+    details: dict[str, Any] | None = None
+    blockers: list[str] = []
+    warnings: list[str] = []
 
 
 class SymbolMappingCreate(APIModel):

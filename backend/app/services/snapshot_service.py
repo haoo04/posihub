@@ -19,6 +19,7 @@ from ..core.config import get_settings
 from ..core.logging import get_logger
 from ..db.models import (
     Account,
+    AccountType,
     AccountBalanceCurrent,
     AccountSnapshotDaily,
     DataSource,
@@ -26,6 +27,7 @@ from ..db.models import (
     PositionSnapshotDaily,
 )
 from ..db.session import session_scope
+from .performance.equity_metrics import uta_basis_start_date
 
 _logger = get_logger(__name__)
 
@@ -57,13 +59,28 @@ def write_daily_snapshots(snapshot_date: date | None = None) -> SnapshotOutcome:
         balance_rows = list(session.exec(select(AccountBalanceCurrent)).all())
         positions_rows = list(session.exec(select(PositionCurrent)).all())
         accounts = {a.id: a for a in session.exec(select(Account)).all()}
+        active_ids = {
+            account_id for account_id, account in accounts.items()
+            if account.enabled and (
+                account.account_type != AccountType.BITGET_UTA
+                or (account.current_equity_usdt is not None and snap_date >= uta_basis_start_date(session, account))
+            )
+        }
+        positions_rows = [p for p in positions_rows if p.account_id in active_ids]
 
         # group balances by (account_id, asset)
         agg: dict[tuple[int, str], list[float]] = defaultdict(lambda: [0.0, 0.0])
         for row in balance_rows:
+            account = accounts.get(row.account_id)
+            if row.account_id not in active_ids or account.account_type == AccountType.BITGET_UTA:
+                continue
             key = (row.account_id, row.asset)
             agg[key][0] += float(row.equity or 0.0)
             agg[key][1] += float(row.available or 0.0)
+        for account_id in active_ids:
+            account = accounts[account_id]
+            if account.account_type == AccountType.BITGET_UTA:
+                agg[(account_id, "USDT")] = [account.current_equity_usdt, 0.0]
         balances_aggregated = len(agg)
 
         # also track per-account total unrealized pnl from positions
@@ -74,12 +91,14 @@ def write_daily_snapshots(snapshot_date: date | None = None) -> SnapshotOutcome:
         # delete any existing snapshots for that date (idempotent)
         session.exec(  # type: ignore[call-arg]
             delete(AccountSnapshotDaily).where(
-                AccountSnapshotDaily.snapshot_date == snap_date
+                AccountSnapshotDaily.snapshot_date == snap_date,
+                AccountSnapshotDaily.account_id.in_(active_ids),
             )
         )
         session.exec(  # type: ignore[call-arg]
             delete(PositionSnapshotDaily).where(
-                PositionSnapshotDaily.snapshot_date == snap_date
+                PositionSnapshotDaily.snapshot_date == snap_date,
+                PositionSnapshotDaily.account_id.in_(active_ids),
             )
         )
 

@@ -132,6 +132,13 @@ export function SettingsPage() {
           <Text type="secondary" style={{ fontSize: 12 }}>
             {row.account_type}
           </Text>
+          {row.details && (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {[row.details.uid_masked && `UID ${row.details.uid_masked}`, row.details.account_mode, row.details.account_level, row.details.hold_mode, row.details.permission_type].filter(Boolean).join(" · ")}
+              {row.details.permissions?.length ? ` · ${row.details.permissions.join(", ")}` : ""}
+            </Text>
+          )}
+          {row.warnings.map((warning) => <Text type="warning" key={warning}>{warning}</Text>)}
         </Space>
       ),
     },

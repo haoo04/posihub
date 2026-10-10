@@ -45,6 +45,7 @@ def call_with_retry(
     base_delay: float = 0.5,
     max_delay: float = 8.0,
     label: str = "exchange",
+    redact_errors: bool = False,
 ) -> T:
     """Invoke ``func`` with exponential backoff on transient errors."""
 
@@ -56,7 +57,8 @@ def call_with_retry(
             last_exc = exc
             if attempt >= attempts:
                 _logger.error(
-                    "%s call failed after %d attempts: %s", label, attempt, exc
+                    "%s call failed after %d attempts: %s", label, attempt,
+                    type(exc).__name__ if redact_errors else exc,
                 )
                 raise
             delay = min(base_delay * (2 ** (attempt - 1)), max_delay)
@@ -66,7 +68,7 @@ def call_with_retry(
                 label,
                 attempt,
                 attempts,
-                exc,
+                type(exc).__name__ if redact_errors else exc,
                 delay,
             )
             time.sleep(delay)

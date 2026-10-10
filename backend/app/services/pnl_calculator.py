@@ -12,8 +12,10 @@ def base_asset_from_canonical(canonical_symbol: str) -> str:
     return head or "?"
 
 
-def is_coin_margined_account(account_type: AccountType) -> bool:
-    return account_type == AccountType.COIN_PERP
+def is_coin_margined_account(account_type: AccountType, canonical_symbol: str = "") -> bool:
+    return account_type == AccountType.COIN_PERP or (
+        account_type == AccountType.BITGET_UTA and canonical_symbol.upper().endswith("-USD-PERP")
+    )
 
 
 def linear_unrealized_pnl_usdt(

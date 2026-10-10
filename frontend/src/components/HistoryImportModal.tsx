@@ -4,6 +4,7 @@ import {
   Button,
   DatePicker,
   Modal,
+  Radio,
   Space,
   Statistic,
   Table,
@@ -24,6 +25,7 @@ import type {
   HistoryImportPreviewResponse,
   ImportDedupStatus,
   OrderPreviewRead,
+  HistoryProductScope,
 } from "@/api/types";
 import { fmtDateTime, fmtPrice, fmtQty, fmtSigned } from "@/utils/format";
 
@@ -50,10 +52,12 @@ export function HistoryImportModal({ open, account, onClose }: Props) {
   );
   const previewMutation = useHistoryImportPreview();
   const commitMutation = useHistoryImportCommit();
+  const [productScope, setProductScope] = useState<HistoryProductScope>("usdt_perp");
 
   const reset = () => {
     setRange(null);
     setPreview(null);
+    setProductScope("usdt_perp");
   };
 
   const handleClose = () => {
@@ -66,12 +70,14 @@ export function HistoryImportModal({ open, account, onClose }: Props) {
       message.warning("请选择时间范围");
       return;
     }
+    setPreview(null);
     try {
       const result = await previewMutation.mutateAsync({
         accountId: account.id,
         payload: {
           since: range[0].toISOString(),
           until: range[1].toISOString(),
+          ...(account.account_type === "bitget_uta" ? { product_scope: productScope } : {}),
         },
       });
       setPreview(result);
@@ -84,7 +90,7 @@ export function HistoryImportModal({ open, account, onClose }: Props) {
   };
 
   const onCommit = () => {
-    if (!account || !preview) return;
+    if (!account || !preview || !preview.complete || preview.blockers.length) return;
     Modal.confirm({
       title: "确认写入数据库？",
       content: `将写入 ${preview.summary.new_opens} 笔开仓、${preview.summary.new_closes} 笔平仓。已存在/冲突/孤儿记录将被跳过。`,
@@ -209,7 +215,7 @@ export function HistoryImportModal({ open, account, onClose }: Props) {
         <Button
           key="commit"
           type="primary"
-          disabled={!preview || hasBlockers || (summary?.new_opens ?? 0) + (summary?.new_closes ?? 0) === 0}
+          disabled={!preview || !preview.complete || hasBlockers || (summary?.new_opens ?? 0) + (summary?.new_closes ?? 0) === 0}
           loading={commitMutation.isPending}
           onClick={onCommit}
         >
@@ -221,13 +227,22 @@ export function HistoryImportModal({ open, account, onClose }: Props) {
       <Space direction="vertical" size="middle" style={{ width: "100%" }}>
         <Alert
           type="info"
-          message="先选择时间范围拉取预览，确认无误后再写入。交易所历史查询单次最长 90 天，超出会自动分片。"
+          message={account?.account_type === "bitget_uta"
+            ? "选择合约范围和最近 90 天内的时间区间。UTA 查询按 30 天分片，读取完整后可写入。"
+            : "先选择时间范围拉取预览，确认无误后再写入。交易所历史查询单次最长 90 天，超出会自动分片。"}
         />
+        {account?.account_type === "bitget_uta" && (
+          <Radio.Group value={productScope} disabled={previewMutation.isPending} onChange={(event) => { setProductScope(event.target.value); setPreview(null); }}>
+            <Radio.Button value="usdt_perp">U 本位</Radio.Button>
+            <Radio.Button value="coin_perp">币本位</Radio.Button>
+          </Radio.Group>
+        )}
         <Space wrap>
           <RangePicker
             showTime
             value={range}
-            onChange={(v) => setRange(v as [Dayjs, Dayjs] | null)}
+            onChange={(v) => { setRange(v as [Dayjs, Dayjs] | null); setPreview(null); }}
+            disabled={previewMutation.isPending}
             disabledDate={(d) => !!d && d.isAfter(dayjs().endOf("day"))}
           />
           <Button
@@ -241,6 +256,9 @@ export function HistoryImportModal({ open, account, onClose }: Props) {
 
         {preview ? (
           <>
+            {preview.warnings.map((warning) => (
+              <Alert type="warning" showIcon key={warning} message={warning} />
+            ))}
             <Space size="large" wrap>
               <Statistic title="拉取总数" value={summary?.total_fetched ?? 0} />
               <Statistic title="新增开仓" value={summary?.new_opens ?? 0} />

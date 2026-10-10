@@ -1,11 +1,11 @@
 # Bitget 统一账户（UTA）升级实施计划
 
-> 状态：规划完成，待实施
+> 状态：代码与合成数据验证完成；真实账户切换及观察待维护窗口验收
 > 编制日期：2026-09-07
 > 评估基线：`feat/connection-check-and-live-price` / `161f340`
 > 范围：PosiHub 的 Bitget 只读同步、历史回填、汇总展示与本地数据迁移
 
-本文是升级与切换计划，不表示已经修改 Bitget 账户模式，也不表示业务代码已经完成适配。实际切换必须在本文的测试门槛全部通过后，由操作人在维护窗口内执行。
+本文记录实现方案与切换运行手册。PosiHub 已实现经典账户与 UTA 并存；平台账户模式及现有数据库尚未实际切换。真实切换必须由操作人在维护窗口内执行。
 
 ## 1. 结论与已确定方案
 
@@ -15,6 +15,7 @@
 2. 一个 Bitget UID 在 PosiHub 中只保留一个启用的 `bitget_uta` 账户；现货、U 本位和币本位不再各建一个启用账户。
 3. 因现有系统需要继续读取 `COIN-FUTURES`，Bitget 侧必须使用 **Advanced Mode**。Basic Mode 不满足币本位范围。
 4. CCXT 从 `4.5.52` 固定升级到 `4.5.77`，并由 PosiHub 显式设置 `uta=True`。不把 CCXT 的自动探测作为路由依据。
+   经典 Bitget 显式使用 `uta=False`。该 CCXT 发布包要求 `cryptography>=50,<51`，因此同步固定 `cryptography==50.0.2`；旧 `43.0.3` Fernet 密文的解密兼容已覆盖测试。
 5. 继续使用只读 API Key。账户设置、资产、当前仓位、历史订单和成交均走只读路径；需要读写权限的历史仓位接口只作为可选校验，权限不足时给出警告，不阻断订单/成交回填。
 6. 首期支持现货资产、`USDT-FUTURES` 和 `COIN-FUTURES`。`USDC-FUTURES` 与现货杠杆不在首期范围；预检发现相关敞口或债务时必须阻断切换，不能静默忽略。
 7. UTA 总权益只采信 `/api/v3/account/assets` 的顶层 `usdtEquity`，每次只计入一次。不能把各经典账户余额继续相加，也不能只取 USDT/USDC/USD 余额代替统一账户权益。
@@ -120,6 +121,8 @@ BITGET_UTA = "bitget_uta"
 
 - 只有 `exchange.name == "bitget"` 可以选择该类型；
 - 新建 UTA 账户默认应先停用，连接测试成功且 UID 不冲突后才允许启用；
+- 用户在新建账户表单选择经典产品或 UTA；已有账户的合并通过显式迁移脚本完成。账户页复用更新接口提供启停与连接测试；
+- UTA 凭据更新后停用账户、清空连接诊断与未提交预览，并保留内部 UID 归属；换成其他 UID 的凭据不能复用原账户历史，应新建账户；
 - Bitget 连接测试为经典和 UTA 记录都保存 UID；同 UID 已有启用的 UTA 记录时，不允许再启用任何经典记录，反向亦然；
 - 不同子账户 UID 可以分别建立 UTA 记录，不能按主账户名称或 `parentId` 合并；
 - 经典 `spot`、`usdt_perp`、`coin_perp` 的行为不变；
@@ -203,7 +206,7 @@ UTA 同步顺序：
 5. 按每条 `product_type` 标准化衍生品 PnL；
 6. 合并现货和衍生品仓位；
 7. 所有请求和标准化均成功后，才在一个数据库事务中 upsert 余额、仓位和账户权益；
-8. 最后刷新订单级仓位并更新同步状态。
+8. 更新同步状态。UTA 的当前数量、价格及 PnL 以完整交易所响应为准；本地订单明细通过父仓位的新价格计算 PnL，不用部分本地订单覆盖钱包数量或交易所当前仓位。
 
 任一步失败都不得把空列表当成成功结果。真正的空仓响应可以清除对应旧仓位；网络、鉴权、限流或解析异常必须保留上次完整状态并标记同步失败。
 
@@ -220,6 +223,7 @@ product_scope: "usdt_perp" | "coin_perp" | null
 - `bitget_uta` 必须显式选择一个范围；
 - 经典 `usdt_perp`、`coin_perp` 继续由账户类型推导，并拒绝冲突参数；
 - `product_scope` 必须写入 `HistoryImportPreview.payload_json`；提交阶段只使用缓存范围，不重新推断；
+- 预览 API 返回 `complete`、`warnings` 和 `blockers`，完整性及警告也写入缓存。UTA 回填需要先通过连接测试；凭据更换会使未提交缓存失效；
 - 前端统一账户的历史回填弹窗增加“U 本位 / 币本位”单选项。
 
 ### 6.2 时间窗与分页
@@ -284,7 +288,9 @@ python scripts/migrate_bitget_uta.py probe --target-account-id 3 --source-accoun
 python scripts/migrate_bitget_uta.py cutover --target-account-id 3 --source-account-ids 1 2 --apply
 ```
 
-脚本应复用当前 `repair_coin_pnl_units.py` 的安全模式：SQLite 备份、结构化 JSON 报告、`DataMigration` 幂等标记和默认 dry-run。建议标记为 `bitget-uta-schema-v1`、`bitget-uta-cutover-v1`。
+脚本使用 SQLite backup API、SHA-256、结构化 JSON 报告和默认 dry-run。schema 标记为 `bitget-uta-schema-v1`；cutover 标记为 `bitget-uta-cutover-v1:<target-account-id>`，以便独立迁移不同 UID。schema 缺失或列结构不兼容时先处理结构，不能以 ORM `create_all()` 代替补列。
+
+各子命令支持 `--database-path <SQLite文件>`；省略时使用配置的 `DATABASE_URL`。写入命令支持 `--backup-path <新文件路径>`，已有文件及数据库自身不能作为备份目标。默认备份以 `.sqlite3` 结尾，受仓库已有忽略规则保护。
 
 ### 8.2 schema 阶段
 
@@ -313,6 +319,8 @@ python scripts/migrate_bitget_uta.py cutover --target-account-id 3 --source-acco
 - 顶层 `usdtEquity` 有限且非负；资产 `usdValue` 合计与 `accountEquity` 在容差内；
 - 不输出密钥、签名、原始请求头、完整 UID 或资产金额。
 
+`probe` 在平台完成 Advanced UTA 切换后执行：目标凭据读取 v3 完整能力，来源凭据仅读取 v3 身份并核验只读权限。平台切换前，先用经典账户连接测试保存 v2 UID。报告显示账户 ID、当前类型、待移动行数和 UID 指纹。
+
 UID 不一致时立即停止。不能因为账户名称相似、API Key 相同/不同或余额相近而绕过检查。
 
 ### 8.4 cutover 事务
@@ -320,6 +328,7 @@ UID 不一致时立即停止。不能因为账户名称相似、API Key 相同/�
 实际写入前再次执行全部离线和在线检查，然后在一个数据库事务中：
 
 1. 确认没有未过期且未提交的历史预览；删除过期预览；
+   同时确认目标及来源在切换日及之后没有快照，避免覆盖当日经典口径；
 2. 检查目标与来源的 `(canonical_symbol, side)` 是否冲突；有冲突时停止，首期不自动合并；
 3. 把来源账户的 `PositionCurrent.account_id` 改为目标 ID，保留 `PositionCurrent.id`，使订单和关闭记录的外键继续有效；
 4. 清空目标及来源账户的 current balance 行，等待第一次 UTA 同步写入唯一共享池；
@@ -328,6 +337,8 @@ UID 不一致时立即停止。不能因为账户名称相似、API Key 相同/�
 7. 清空来源账户的同步状态，避免旧成功状态造成误解；
 8. 写入包含账户 ID、行数和脱敏 UID 指纹的 `DataMigration` 记录；
 9. 提交事务后立即执行一次 UTA 同步和一次临时快照校验。
+
+写入阶段持有 SQLite `BEGIN IMMEDIATE` 锁并重新预检；备份在任何数据变更之前完成。临时快照校验使用 savepoint 并回滚，不覆盖日快照。如果 cutover 已提交但首次同步或后续校验失败，报告仍明确 `applied=true`，返回失败退出码并停用目标；操作人按报告备份恢复或修复后再启用。
 
 `PositionOrder`、`PositionCloseExecution` 和 `PositionOrderMatch` 不改主键或外键；它们通过未变化的父 `PositionCurrent.id` 自动归入目标账户。历史 `AccountSnapshotDaily`、`PositionSnapshotDaily` 和 `ManualEntry` 留在原账户中，作为切换前审计记录，不做语义不可靠的重估值或归并。
 
@@ -477,7 +488,7 @@ Bitget 当前文档提供“切换到经典账户”及状态查询接口，但 
 - [ ] 首期外敞口可被检测并阻断；
 - [ ] 实际切换达到第 11.3 节标准；
 - [ ] 24 小时观察期内同步、总览、快照和历史回填无异常；
-- [ ] 本地提交完整，未向远程推送。
+- [ ] 提交完整且已审查；本次用户明确授权发布 `feat/bitget-uta` 并创建目标为 `dev` 的 PR。
 
 ## 14. 官方参考
 
@@ -493,3 +504,26 @@ Bitget 当前文档提供“切换到经典账户”及状态查询接口，但 
 - [Bitget UTA 更新日志](https://www.bitget.com/api-doc/uta/changelog)
 - [CCXT 4.5.77 PyPI 发布页](https://pypi.org/project/ccxt/4.5.77/)
 - [CCXT Bitget 实现](https://github.com/ccxt/ccxt/blob/v4.5.77/python/ccxt/bitget.py)
+
+## 15. 已完成的开发验证与部署顺序
+
+- `dev` 原始后端基线 130 个测试通过；新增 UTA 当前同步、UID/权限、原子性、历史范围、分页、汇总及 SQLite 迁移覆盖，完整锁定环境测试通过。
+- 前端 13 个现有测试及生产构建通过；浏览器用拦截的合成 API 验证 Bitget 专属选项、新建后停用、测试后启用、范围切换、只读警告、不完整预览阻断及缓存提交，未调用真实交易所。
+- 全量依赖安装及 `pip check` 通过；未操作生产数据库或平台账户模式。生产数据库副本演练、Bitget 实时对账、连续三次同步和 24 小时观察仍是部署验收步骤。
+
+部署时先停止旧后端与调度器并保留原配置、加密密钥及数据库，再在原环境配置下执行：
+
+```text
+python scripts/migrate_bitget_uta.py schema
+python scripts/migrate_bitget_uta.py schema --apply
+```
+
+schema 完成后启动新版应用，原经典账户按原类型运行。新 UTA 账户通过页面创建、连接测试和启用。已有同 UID 账户按第 11 节维护窗口步骤处理，并显式指定 ID：
+
+```text
+python scripts/migrate_bitget_uta.py probe --target-account-id <目标ID> --source-account-ids <来源ID列表>
+python scripts/migrate_bitget_uta.py cutover --target-account-id <目标ID> --source-account-ids <来源ID列表>
+python scripts/migrate_bitget_uta.py cutover --target-account-id <目标ID> --source-account-ids <来源ID列表> --apply
+```
+
+退出码 `0` 表示检查通过或已幂等应用；退出码 `2` 表示阻断或失败。确认 `first_sync_succeeded` 与 `snapshot_validated` 后再继续人工对账及恢复调度。

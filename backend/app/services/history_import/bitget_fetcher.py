@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import math
 from typing import Any, Optional
 
 from ...core.logging import get_logger
@@ -214,6 +215,7 @@ def fetch_bitget_history(
     since_ms: int,
     until_ms: int,
     account_type: AccountType | None = None,
+    uta: bool = False,
 ) -> HistoryFetchResult:
     """Return normalised orders + closed-position summaries for a time range.
 
@@ -224,6 +226,76 @@ def fetch_bitget_history(
     """
 
     stats = HistoryFetchStats()
+    if uta:
+        result = HistoryFetchResult(stats=stats)
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        if since_ms < now_ms - _HISTORY_WINDOW_MS or until_ms > now_ms:
+            result.complete = False
+            result.blockers.append("UTA history is limited to the last 90 days and cannot end in the future")
+            return result
+        try:
+            raw_orders = client.fetch_closed_orders_history(since=since_ms, until=until_ms)
+            raw_trades = client.fetch_my_trades_history(since=since_ms, until=until_ms)
+        except Exception as exc:
+            result.complete = False
+            result.blockers.append(f"UTA order/fill history is incomplete ({type(exc).__name__}); re-run preview")
+            return result
+        stats.fetched_orders = len(raw_orders)
+        stats.fetched_trades = len(raw_trades)
+        scoped_trades = [row for row in raw_trades if raw_matches_bitget_product(row, account_type)]
+        stats.filtered_out_of_scope = len(raw_trades) - len(scoped_trades)
+        trade_index = build_order_trade_index(scoped_trades)
+        by_id: dict[str, NormalizedHistoryOrder] = {}
+        executed_ids: set[str] = set()
+        for raw in raw_orders:
+            info = raw.get("info", {})
+            try:
+                quantity = float(info.get("cumExecQty") or raw.get("filled") or 0)
+                if not math.isfinite(quantity):
+                    raise ValueError
+                if quantity > 0:
+                    executed_ids.add(str(raw.get("id") or info.get("orderId")))
+            except (TypeError, ValueError):
+                result.complete = False
+                result.blockers.append("Invalid UTA executed quantity")
+            status = _ingest_raw_order(
+                by_id, raw, fill_times=trade_index.fill_times, mapper=mapper,
+                exchange_name=exchange_name, account_type=account_type,
+            )
+            if status == "out_of_scope":
+                stats.filtered_out_of_scope += 1
+        for order_id, trades in trade_index.trades_by_order.items():
+            if order_id not in by_id:
+                synthesized = aggregate_bitget_trades_to_order_raw(order_id, trades)
+                if synthesized:
+                    _ingest_raw_order(
+                        by_id, synthesized, fill_times=trade_index.fill_times,
+                        mapper=mapper, exchange_name=exchange_name, account_type=account_type,
+                    )
+        stats.unresolved_fill_time = len((set(trade_index.trades_by_order) | executed_ids) - set(by_id))
+        if stats.filtered_out_of_scope or stats.unresolved_fill_time:
+            result.complete = False
+            result.blockers.append("UTA history contains out-of-scope or unparseable executed records")
+        result.orders = sorted(
+            [order for order in by_id.values() if _fill_time_in_range(order.created_at, since_ms, until_ms)],
+            key=lambda order: (order.created_at, order.source_order_id),
+        )
+        stats.fallback_time_orders = sum(order.time_source == "order_update" for order in result.orders)
+        try:
+            raw_positions = client.fetch_positions_history(since=since_ms, until=until_ms)
+        except Exception:
+            raw_positions = []
+            result.warnings.append("validation_unavailable: historical position comparison is unavailable with this read-only key")
+        for raw in raw_positions:
+            if not raw_matches_bitget_product(raw, account_type):
+                continue
+            summary = normalize_bitget_closed_position(raw)
+            if summary:
+                canonical = _canonical_in_scope(mapper, exchange_name, summary.raw_symbol, account_type)
+                if canonical != "__OUT_OF_SCOPE__":
+                    summary.canonical_symbol = canonical
+                    result.closed_positions.append(summary)
+        return result
     filtered_keys: set[str] = set()
 
     def mark_filtered(raw: Any, kind: str) -> None:

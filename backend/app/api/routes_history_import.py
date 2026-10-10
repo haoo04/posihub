@@ -15,6 +15,7 @@ from ..db.models import (
     AccountType,
     Exchange,
     HistoryImportPreview,
+    ExchangeConnectionState,
 )
 from ..schemas.history_import import (
     HistoryImportCommitRequest,
@@ -34,7 +35,7 @@ from ..services.history_import.serialization import (
     order_to_dict,
     closed_position_to_dict,
 )
-from ..services.history_import.scope import canonical_matches_bitget_product
+from ..services.history_import.scope import canonical_matches_bitget_product, resolve_history_product_scope
 from ..services.history_import.simulator import simulate
 from ..services.normalize.symbol_mapper import SymbolMapper
 from .deps import SessionDep
@@ -44,7 +45,7 @@ router = APIRouter(prefix="/api/v1", tags=["history-import"])
 _logger = get_logger(__name__)
 
 _PREVIEW_TTL = timedelta(minutes=30)
-_SUPPORTED_ACCOUNT_TYPES = {AccountType.USDT_PERP, AccountType.COIN_PERP}
+_SUPPORTED_ACCOUNT_TYPES = {AccountType.USDT_PERP, AccountType.COIN_PERP, AccountType.BITGET_UTA}
 
 
 def _to_ms(value: datetime) -> int:
@@ -113,12 +114,21 @@ def preview_history_import(
     account = _require_backfillable_account(session, account_id)
     if payload.until <= payload.since:
         raise HTTPException(status_code=400, detail="until must be after since")
+    try:
+        product_scope = resolve_history_product_scope(account.account_type, payload.product_scope)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    is_uta = account.account_type == AccountType.BITGET_UTA
+    if is_uta:
+        state = session.exec(select(ExchangeConnectionState).where(ExchangeConnectionState.account_id == account_id)).first()
+        if state is None or state.status != "connected":
+            raise HTTPException(status_code=400, detail="Test the UTA connection successfully before importing history")
 
     exchange = session.get(Exchange, account.exchange_id)
     exchange_name = exchange.name if exchange else "bitget"
 
     try:
-        client = build_client_for_account(session, account)
+        client = build_client_for_account(session, account, **({"product_scope": product_scope} if is_uta else {}))
     except Exception as exc:  # noqa: BLE001 - surface as 400 to the UI
         raise HTTPException(status_code=400, detail=f"build client failed: {exc}")
 
@@ -130,7 +140,8 @@ def preview_history_import(
             exchange_name=exchange_name,
             since_ms=_to_ms(payload.since),
             until_ms=_to_ms(payload.until),
-            account_type=account.account_type,
+            account_type=product_scope,
+            **({"uta": True} if is_uta else {}),
         )
     except Exception as exc:  # noqa: BLE001
         _logger.exception("history fetch failed for account %s", account_id)
@@ -147,6 +158,10 @@ def preview_history_import(
         fetch_stats = fetch_result.stats
     local_state = load_local_state(session, account_id)
     preview = simulate(orders, local_state, closed_positions=closed_positions)
+    complete = getattr(fetch_result, "complete", True)
+    warnings = getattr(fetch_result, "warnings", [])
+    fetch_blockers = getattr(fetch_result, "blockers", [])
+    preview.blockers.extend(fetch_blockers)
     preview.summary.pnl_validation_warnings = _pnl_validation_warnings(
         preview, closed_positions
     )
@@ -161,6 +176,11 @@ def preview_history_import(
         {
             "orders": [order_to_dict(o) for o in orders],
             "closed_positions": [closed_position_to_dict(c) for c in closed_positions],
+            "account_type": account.account_type.value,
+            "product_scope": product_scope.value,
+            "complete": complete,
+            "warnings": warnings,
+            "blockers": fetch_blockers,
         }
     )
     # Drop expired rows opportunistically to keep the cache table small.
@@ -188,6 +208,8 @@ def preview_history_import(
         closed_positions=preview.closed_positions,
         summary=preview.summary,
         blockers=preview.blockers,
+        complete=complete,
+        warnings=warnings,
     )
 
 
@@ -211,6 +233,12 @@ def commit_history_import_endpoint(
         raise HTTPException(status_code=410, detail="preview expired, re-run preview")
 
     data = json.loads(cached.payload_json)
+    if not data.get("complete", True) or data.get("blockers"):
+        raise HTTPException(status_code=400, detail="History is incomplete; re-run preview before committing")
+    try:
+        product_scope = resolve_history_product_scope(account.account_type, data.get("product_scope"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
     orders = [order_from_dict(d) for d in data.get("orders", [])]
 
     # The preview is cached for up to 30 minutes.  Re-check the account scope
@@ -218,7 +246,7 @@ def commit_history_import_endpoint(
     # write the other Bitget product into this ledger.
     for order in orders:
         if order.canonical_symbol and not canonical_matches_bitget_product(
-            order.canonical_symbol, account.account_type
+            order.canonical_symbol, product_scope
         ):
             raise HTTPException(
                 status_code=400,

@@ -12,6 +12,7 @@ from sqlmodel import select
 
 from ..db.models import (
     Account,
+    AccountType,
     AccountBalanceCurrent,
     AccountSnapshotDaily,
     PositionCurrent,
@@ -25,26 +26,30 @@ router = APIRouter(prefix="/api/v1/overview", tags=["overview"])
 
 @router.get("", response_model=OverviewResponse)
 def get_overview(session: SessionDep) -> OverviewResponse:
-    accounts = list(session.exec(select(Account)).all())
+    accounts = list(session.exec(select(Account).where(Account.enabled == True)).all())
+    account_by_id = {int(a.id): a for a in accounts if a.id is not None}
     balances = list(session.exec(select(AccountBalanceCurrent)).all())
     positions = list(session.exec(select(PositionCurrent)).all())
 
     # Equity totals are summed per asset; we expose the USDT/USD bucket.
     equity_by_asset: dict[str, float] = defaultdict(float)
     for b in balances:
+        account = account_by_id.get(b.account_id)
+        if account is None or account.account_type == AccountType.BITGET_UTA:
+            continue
         equity_by_asset[b.asset.upper()] += float(b.equity or 0.0)
 
     total_equity = (
         equity_by_asset.get("USDT", 0.0)
         + equity_by_asset.get("USDC", 0.0)
         + equity_by_asset.get("USD", 0.0)
+        + sum(float(a.current_equity_usdt or 0) for a in accounts if a.account_type == AccountType.BITGET_UTA)
     )
 
     total_upnl = 0.0
     active_positions = 0
-    account_by_id = {int(a.id): a for a in accounts if a.id is not None}
     for p in positions:
-        if float(p.qty or 0.0) <= 0:
+        if p.account_id not in account_by_id or float(p.qty or 0.0) <= 0:
             continue
         active_positions += 1
         account = account_by_id.get(int(p.account_id))

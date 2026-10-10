@@ -123,7 +123,7 @@ def list_positions(
             data["has_cost_basis"] = has_cost_basis
             if account:
                 data["account_type"] = account.account_type.value
-                if is_coin_margined_account(account.account_type):
+                if is_coin_margined_account(account.account_type, r.canonical_symbol):
                     data["pnl_asset"] = base_asset_from_canonical(r.canonical_symbol)
             out.append(PositionRead.model_validate(data))
         return out

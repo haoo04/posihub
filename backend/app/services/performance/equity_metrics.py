@@ -3,15 +3,29 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+import json
+from datetime import date, timezone
+from zoneinfo import ZoneInfo
 
 from sqlmodel import Session, select
 
-from ...db.models import AccountBalanceCurrent, AccountSnapshotDaily
+from ...core.config import get_settings
+from ...db.models import Account, AccountType, DataMigration, AccountBalanceCurrent, AccountSnapshotDaily
 from ..aggregate.pnl_calculator import aggregate_daily_equity
 from .scope import PerformanceScope
 
 STABLE_ASSETS = frozenset({"USDT", "USDC", "USD"})
+
+
+def uta_basis_start_date(session: Session, account: Account) -> date | None:
+    if account.account_type != AccountType.BITGET_UTA:
+        return None
+    migration = session.get(DataMigration, f"bitget-uta-cutover-v1:{account.id}")
+    if migration:
+        return date.fromisoformat(json.loads(migration.details_json)["cutover_date"])
+    return account.created_at.replace(tzinfo=timezone.utc).astimezone(
+        ZoneInfo(get_settings().app_timezone)
+    ).date()
 
 
 @dataclass(slots=True)
@@ -66,20 +80,30 @@ def max_drawdown_pct(equities: list[float]) -> float:
     return max(series) if series else 0.0
 
 
-def _live_equity_usdt(session: Session, scope: PerformanceScope, asset: str) -> float:
+def _live_equity_usdt(session: Session, scope: PerformanceScope, asset: str, *, end_date: date | None = None) -> float:
     asset_upper = asset.upper()
     if asset_upper not in STABLE_ASSETS:
         return 0.0
     if not scope.account_ids:
         return 0.0
 
+    accounts = list(session.exec(select(Account).where(Account.id.in_(scope.account_ids))).all())
+    classic_ids = [a.id for a in accounts if a.account_type != AccountType.BITGET_UTA]
+
     rows = session.exec(
         select(AccountBalanceCurrent.equity).where(
-            AccountBalanceCurrent.account_id.in_(scope.account_ids),
+            AccountBalanceCurrent.account_id.in_(classic_ids),
             AccountBalanceCurrent.asset == asset_upper,
         )
     ).all()
-    return sum(float(v or 0.0) for v in rows)
+    return sum(float(v or 0.0) for v in rows) + (
+        sum(
+            float(a.current_equity_usdt or 0) for a in accounts
+            if a.account_type == AccountType.BITGET_UTA
+            and (end_date is None or end_date >= uta_basis_start_date(session, a))
+        )
+        if asset_upper == "USDT" else 0.0
+    )
 
 
 def compute_equity_metrics(
@@ -109,11 +133,18 @@ def compute_equity_metrics(
         )
 
     asset_upper = asset.upper()
+    scoped_accounts = list(session.exec(select(Account).where(Account.id.in_(scope.account_ids))).all())
+    basis_dates = {
+        account.id: uta_basis_start_date(session, account)
+        for account in scoped_accounts
+        if account.account_type == AccountType.BITGET_UTA
+    }
     rows = session.exec(
         select(
             AccountSnapshotDaily.snapshot_date,
             AccountSnapshotDaily.total_equity,
             AccountSnapshotDaily.total_unrealized_pnl,
+            AccountSnapshotDaily.account_id,
         ).where(
             AccountSnapshotDaily.snapshot_date >= start_date,
             AccountSnapshotDaily.snapshot_date <= end_date,
@@ -123,13 +154,20 @@ def compute_equity_metrics(
     ).all()
 
     aggregated = aggregate_daily_equity(
-        [(r[0], float(r[1] or 0.0), float(r[2] or 0.0)) for r in rows]
+        [
+            (r[0], float(r[1] or 0.0), float(r[2] or 0.0)) for r in rows
+            if r[3] not in basis_dates or r[0] >= basis_dates[r[3]]
+        ]
     )
     equities = [p.total_equity for p in aggregated]
     dates = [p.snapshot_date for p in aggregated]
 
-    live_equity = _live_equity_usdt(session, scope, asset_upper)
-    if live_equity > 0 and (not dates or dates[-1] < end_date):
+    live_equity = _live_equity_usdt(session, scope, asset_upper, end_date=end_date)
+    has_live_uta = asset_upper == "USDT" and any(
+        account.id in basis_dates and account.current_equity_usdt is not None
+        and end_date >= basis_dates[account.id] for account in scoped_accounts
+    )
+    if (live_equity > 0 or has_live_uta) and (not dates or dates[-1] < end_date):
         if dates and dates[-1] == end_date:
             equities[-1] = live_equity
         else:

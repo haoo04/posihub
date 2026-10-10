@@ -16,6 +16,7 @@ A failure of one account never propagates to others.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
@@ -84,6 +85,9 @@ def sync_account(session: Session, account: Account) -> SyncOutcome:
         return outcome
 
     started = _utcnow()
+    is_uta = account.account_type == AccountType.BITGET_UTA
+    if is_uta and not account.enabled:
+        return _record_failure(session, account, "UTA account is disabled; test and enable it first", started)
     try:
         client = build_client_for_account(session, account)
     except Exception as exc:
@@ -94,7 +98,32 @@ def sync_account(session: Session, account: Account) -> SyncOutcome:
     unmapped: list[str] = []
 
     try:
-        balances = client.fetch_balance()
+        if is_uta:
+            fetched = client.fetch_all()
+            balances = fetched.balances
+            if fetched.total_equity_usdt is None:
+                raise ValueError("UTA total equity is missing")
+            positions = derive_spot_positions(
+                account_id=account.id or 0,
+                exchange_name=exchange_name,
+                balances=balances,
+                client=client,
+                mapper=mapper,
+                source=DataSource.API,
+                unmapped=unmapped,
+            ) + normalize_positions(
+                account_id=account.id or 0,
+                exchange_name=exchange_name,
+                raws=fetched.positions,
+                mapper=mapper,
+                source=DataSource.API,
+                account_type=account.account_type,
+                unmapped=unmapped,
+            )
+            if len({(p.canonical_symbol, p.side) for p in positions}) != len(positions):
+                raise ValueError("UTA position mappings conflict")
+        else:
+            balances = client.fetch_balance()
         if account.account_type == AccountType.SPOT:
             positions = derive_spot_positions(
                 account_id=account.id or 0,
@@ -122,7 +151,7 @@ def sync_account(session: Session, account: Account) -> SyncOutcome:
             )
         elif account.account_type == AccountType.FUNDING:
             positions = []
-        else:
+        elif not is_uta:
             positions = []
     except Exception as exc:
         return _record_failure(session, account, f"fetch failed: {exc}", started)
@@ -143,11 +172,20 @@ def sync_account(session: Session, account: Account) -> SyncOutcome:
         )
 
     try:
-        upsert_balances(session, account.id or 0, normalised_balances)
-        rows_written = upsert_positions(session, account.id or 0, normalised_positions)
-        refresh_account_positions_from_orders(session, account.id or 0, now=started)
+        with session.begin_nested() if is_uta else nullcontext():
+            upsert_balances(session, account.id or 0, normalised_balances)
+            rows_written = upsert_positions(session, account.id or 0, normalised_positions)
+            if is_uta:
+                account.current_equity_usdt = fetched.total_equity_usdt
+                session.add(account)
+            # The UTA pool is authoritative even when the local ledger tracks only part of it.
+            if not is_uta:
+                refresh_account_positions_from_orders(session, account.id or 0, now=started)
+            if is_uta:
+                session.flush()
     except Exception as exc:
-        return _record_failure(session, account, f"persist failed: {exc}", started)
+        detail = type(exc).__name__ if is_uta else str(exc)
+        return _record_failure(session, account, f"persist failed: {detail}", started)
 
     account.last_sync_at = started
     account.last_sync_status = "ok"

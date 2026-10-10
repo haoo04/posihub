@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   Button,
+  Alert,
   Card,
   Col,
   Row,
@@ -426,6 +427,9 @@ export function PerformancePage() {
         title="交易表现"
         description="基于日快照与平仓事件的 P0 指标，支持单账户或多账户筛选"
       />
+      {(accounts.data ?? []).filter((account) => account.enabled && account.account_type === "bitget_uta" && (!accountIds.length || accountIds.includes(account.id))).map((account) => (
+        <Alert key={account.id} type="info" showIcon message={`${account.account_name}：UTA 口径起始日 ${account.uta_basis_start_date ?? "首次同步后"}，切换前快照保留在原账户中。`} />
+      ))}
 
       <Card bodyStyle={{ padding: 16 }} style={{ borderRadius: 12 }}>
         <Space

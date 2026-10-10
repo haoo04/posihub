@@ -50,6 +50,7 @@ class AccountType(str, Enum):
     SPOT = "spot"
     USDT_PERP = "usdt_perp"
     COIN_PERP = "coin_perp"
+    BITGET_UTA = "bitget_uta"
     FUTURES = "futures"
     FUNDING = "funding"
     SIMULATED = "simulated"
@@ -101,6 +102,7 @@ class Account(SQLModel, table=True):
     last_sync_status: Optional[str] = Field(default=None, max_length=32)
     last_sync_error: Optional[str] = Field(default=None)
     consecutive_failures: int = Field(default=0)
+    current_equity_usdt: Optional[float] = Field(default=None)
 
     created_at: datetime = Field(default_factory=_utcnow)
 
@@ -119,6 +121,7 @@ class ExchangeConnectionState(SQLModel, table=True):
     last_test_at: datetime | None = Field(default=None)
     latency_ms: float | None = Field(default=None)
     message: str | None = Field(default=None, max_length=500)
+    details_json: str | None = Field(default=None)
 
 
 # ---------------------------------------------------------------------------

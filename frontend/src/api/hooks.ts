@@ -181,6 +181,8 @@ export function useUpdateAccount(
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.accounts });
       qc.invalidateQueries({ queryKey: queryKeys.exchangeConnections });
+      qc.invalidateQueries({ queryKey: queryKeys.overview });
+      qc.invalidateQueries({ queryKey: ["positions"] });
     },
     ...options,
   });

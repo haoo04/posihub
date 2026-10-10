@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   Button,
+  Alert,
   Card,
   Drawer,
   Form,
@@ -35,6 +36,9 @@ import {
   useDeleteAccount,
   useExchanges,
   useSyncAccount,
+  useUpdateAccount,
+  useExchangeConnections,
+  useTestExchangeConnection,
 } from "@/api/hooks";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import type { Account, AccountCreate, AccountType } from "@/api/types";
@@ -45,6 +49,7 @@ const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
   { value: "spot", label: "现货 Spot" },
   { value: "usdt_perp", label: "U 本位永续" },
   { value: "coin_perp", label: "币本位永续" },
+  { value: "bitget_uta", label: "Bitget UTA 统一账户" },
   { value: "futures", label: "交割合约" },
   { value: "funding", label: "理财/资金" },
   { value: "simulated", label: "模拟账户" },
@@ -58,14 +63,20 @@ export function AccountsPage() {
   const createExchange = useCreateExchange();
   const deleteAccount = useDeleteAccount();
   const syncAccount = useSyncAccount();
+  const updateAccount = useUpdateAccount();
+  const connections = useExchangeConnections();
+  const testConnection = useTestExchangeConnection();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [exchangeModalOpen, setExchangeModalOpen] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
   const [historyAccount, setHistoryAccount] = useState<Account | null>(null);
   const [form] = Form.useForm<AccountCreate>();
   const [exchangeForm] = Form.useForm<{ name: string }>();
+  const selectedExchange = Form.useWatch("exchange_id", form);
+  const selectedAccountType = Form.useWatch("account_type", form);
 
   const exchangeMap = new Map((exchanges.data ?? []).map((e) => [e.id, e.name]));
+  const connectionMap = new Map((connections.data ?? []).map((row) => [row.account_id, row]));
 
   const onSubmit = async () => {
     const values = await form.validateFields();
@@ -73,6 +84,7 @@ export function AccountsPage() {
       await createAccount.mutateAsync({
         ...values,
         is_simulated: values.account_type === "simulated",
+        enabled: values.account_type === "bitget_uta" ? false : values.enabled,
       });
       message.success("账户已创建");
       form.resetFields();
@@ -144,6 +156,24 @@ export function AccountsPage() {
     }
   };
 
+  const onToggle = async (row: Account, enabled: boolean) => {
+    try {
+      await updateAccount.mutateAsync({ id: row.id, patch: { enabled } });
+      message.success(enabled ? "账户已启用" : "账户已停用");
+    } catch (error) {
+      message.error((error as Error).message);
+    }
+  };
+
+  const onTest = async (id: number) => {
+    try {
+      const result = await testConnection.mutateAsync(id);
+      result.status === "connected" ? message.success("连接测试通过，可启用同步") : message.warning(result.message ?? "连接测试未通过");
+    } catch (error) {
+      message.error((error as Error).message);
+    }
+  };
+
   const columns = [
     {
       title: "账户",
@@ -155,6 +185,20 @@ export function AccountsPage() {
             {exchangeMap.get(row.exchange_id) ?? `#${row.exchange_id}`} ·{" "}
             {ACCOUNT_TYPES.find((t) => t.value === row.account_type)?.label}
           </Text>
+          {row.account_type === "bitget_uta" && (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Advanced · 现货 / U 本位 / 币本位
+              {row.uta_basis_start_date && ` · UTA 口径起始日 ${row.uta_basis_start_date}`}
+            </Text>
+          )}
+          {connectionMap.get(row.id)?.details?.uid_masked && (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              UID {connectionMap.get(row.id)?.details?.uid_masked}
+            </Text>
+          )}
+          {connectionMap.get(row.id)?.blockers.map((blocker) => (
+            <Text type="danger" style={{ fontSize: 12 }} key={blocker}>{blocker}</Text>
+          ))}
         </Space>
       ),
     },
@@ -226,13 +270,17 @@ export function AccountsPage() {
     {
       title: "启用",
       dataIndex: "enabled",
-      render: (v: boolean) => (
-        <Tag
-          color={v ? "blue" : "default"}
-          style={{ margin: 0, border: "none" }}
-        >
-          {v ? "启用" : "停用"}
-        </Tag>
+      render: (v: boolean, row: Account) => (
+        <Tooltip title={row.account_type === "bitget_uta" && !v ? "连接测试通过后可启用" : undefined}>
+          <Switch
+            checked={v}
+            checkedChildren="启用"
+            unCheckedChildren="停用"
+            loading={updateAccount.isPending && updateAccount.variables?.id === row.id}
+            disabled={!v && row.account_type === "bitget_uta" && connectionMap.get(row.id)?.status !== "connected"}
+            onChange={(enabled) => onToggle(row, enabled)}
+          />
+        </Tooltip>
       ),
     },
     {
@@ -241,21 +289,28 @@ export function AccountsPage() {
       align: "right" as const,
       render: (_: unknown, row: Account) => (
         <Space>
+          {exchangeMap.get(row.exchange_id) === "bitget" && !row.is_simulated && (
+            <Button size="small" onClick={() => onTest(row.id)} loading={testConnection.isPending && testConnection.variables === row.id}>
+              测试连接
+            </Button>
+          )}
           <Button
             size="small"
             icon={<SyncOutlined />}
             onClick={() => onSync(row.id)}
             loading={syncAccount.isPending && syncAccount.variables === row.id}
+            disabled={row.account_type === "bitget_uta" && !row.enabled}
           >
             同步
           </Button>
           {(row.account_type === "usdt_perp" ||
-            row.account_type === "coin_perp") &&
+            row.account_type === "coin_perp" || row.account_type === "bitget_uta") &&
           !row.is_simulated ? (
             <Button
               size="small"
               icon={<HistoryOutlined />}
               onClick={() => setHistoryAccount(row)}
+              disabled={row.account_type === "bitget_uta" && connectionMap.get(row.id)?.status !== "connected"}
             >
               历史回填
             </Button>
@@ -327,6 +382,7 @@ export function AccountsPage() {
       </Card>
 
       <HistoryImportModal
+        key={historyAccount?.id ?? "closed"}
         open={historyAccount !== null}
         account={historyAccount}
         onClose={() => setHistoryAccount(null)}
@@ -371,6 +427,11 @@ export function AccountsPage() {
           >
             <Select
               placeholder="请选择已配置的交易所"
+              onChange={(id: number) => {
+                if (exchangeMap.get(id) !== "bitget" && form.getFieldValue("account_type") === "bitget_uta") {
+                  form.setFieldsValue({ account_type: "spot", enabled: true });
+                }
+              }}
               options={(exchanges.data ?? []).map((e) => ({
                 value: e.id,
                 label: e.name,
@@ -389,8 +450,17 @@ export function AccountsPage() {
             name="account_type"
             rules={[{ required: true }]}
           >
-            <Select options={ACCOUNT_TYPES} />
+            <Select
+              options={ACCOUNT_TYPES.filter((type) => type.value !== "bitget_uta" || exchangeMap.get(selectedExchange) === "bitget").map((type) => ({
+                ...type,
+                label: exchangeMap.get(selectedExchange) === "bitget" && ["spot", "usdt_perp", "coin_perp"].includes(type.value) ? `${type.label}（经典账户）` : type.label,
+              }))}
+              onChange={(type: AccountType) => form.setFieldValue("enabled", type !== "bitget_uta")}
+            />
           </Form.Item>
+          {selectedAccountType === "bitget_uta" && (
+            <Alert style={{ marginBottom: 16 }} type="info" showIcon message="支持只读 Advanced UTA：现货、U 本位与币本位。创建后请测试连接，再启用同步。已有经典账户的历史数据通过迁移脚本保留。" />
+          )}
           <Form.Item
             shouldUpdate={(p, n) => p.account_type !== n.account_type}
             noStyle
@@ -442,7 +512,7 @@ export function AccountsPage() {
             }}
           </Form.Item>
           <Form.Item label="启用同步" name="enabled" valuePropName="checked">
-            <Switch />
+            <Switch disabled={selectedAccountType === "bitget_uta"} />
           </Form.Item>
         </Form>
       </Drawer>

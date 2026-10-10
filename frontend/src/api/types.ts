@@ -10,6 +10,7 @@ export type AccountType =
   | "spot"
   | "usdt_perp"
   | "coin_perp"
+  | "bitget_uta"
   | "futures"
   | "funding"
   | "simulated";
@@ -56,6 +57,17 @@ export interface ExchangeConnection {
   last_test_at: string | null;
   latency_ms: number | null;
   message: string | null;
+  details: {
+    uid_masked?: string;
+    account_mode?: string;
+    account_level?: string;
+    hold_mode?: string;
+    permission_type?: string;
+    permissions?: string[];
+    capabilities?: string[];
+  } | null;
+  blockers: string[];
+  warnings: string[];
 }
 
 export interface Account {
@@ -71,6 +83,8 @@ export interface Account {
   consecutive_failures: number;
   created_at: string;
   api_key_masked: string | null;
+  current_equity_usdt: number | null;
+  uta_basis_start_date: string | null;
 }
 
 export interface AccountCreate {
@@ -474,9 +488,12 @@ export type ImportDedupStatus =
   | "conflict"
   | "orphan_close";
 
+export type HistoryProductScope = "usdt_perp" | "coin_perp";
+
 export interface HistoryImportPreviewRequest {
   since: string;
   until: string;
+  product_scope?: HistoryProductScope | null;
 }
 
 export interface PlannedMatchRead {
@@ -538,6 +555,8 @@ export interface HistoryImportPreviewResponse {
   closed_positions: ClosedPositionSummaryRead[];
   summary: ImportSummaryRead;
   blockers: string[];
+  complete: boolean;
+  warnings: string[];
 }
 
 export interface HistoryImportCommitResponse {
