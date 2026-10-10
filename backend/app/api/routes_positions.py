@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func
 from sqlmodel import select
 
+from ..core.logging import get_logger
 from ..db.models import (
     Account,
     PositionCloseExecution,
@@ -26,7 +27,6 @@ from ..schemas.position_order import (
     PositionCloseExecutionRead,
     PositionCloseRequest,
     PositionOrderMatchRead,
-    PositionOrderRead,
     SpecifiedCloseRequest,
 )
 from ..services.aggregate.position_aggregator import (
@@ -36,8 +36,12 @@ from ..services.aggregate.position_aggregator import (
 from ..services.live_prices import fetch_live_position_prices
 from ..services.pnl_calculator import (
     base_asset_from_canonical,
+    entry_base_to_quote,
+    get_quantity_context,
     is_coin_margined_account,
+    normalize_quote_qty,
     position_unrealized_pnl_usdt,
+    quote_qty_tolerance,
 )
 from ..services.position_market import (
     instrument_type_from_canonical,
@@ -50,8 +54,36 @@ from ..services.position_order_close import (
 )
 from ..services.realized_pnl_query import realized_pnl_totals_by_position_id
 from .deps import SessionDep
+from .routes_position_orders import order_read
 
 router = APIRouter(prefix="/api/v1/positions", tags=["positions"])
+_logger = get_logger(__name__)
+
+
+def match_read(match: PositionOrderMatch, context: dict[str, str]) -> PositionOrderMatchRead:
+    data = match.model_dump()
+    if context["quantity_mode"] == "quote_contract":
+        data["matched_qty"] = entry_base_to_quote(match.matched_qty, match.open_price)
+    return PositionOrderMatchRead(**data, **context)
+
+
+def execution_read(
+    execution: PositionCloseExecution,
+    matches: list[PositionOrderMatch],
+    context: dict[str, str],
+) -> PositionCloseExecutionRead:
+    data = execution.model_dump()
+    if context["quantity_mode"] == "quote_contract":
+        if matches:
+            data["close_qty"] = normalize_quote_qty(
+                sum(m.matched_qty * m.open_price for m in matches),
+                sum(quote_qty_tolerance(m.open_price) for m in matches),
+            )
+        else:
+            data["close_qty"] = None
+            data["quantity_warning"] = "Missing matches; USD close quantity cannot be reconstructed"
+            _logger.warning("Bybit inverse execution %s has no matches", execution.id)
+    return PositionCloseExecutionRead(**data, **context)
 
 
 @router.get("/prices", response_model=PositionPricesRead)
@@ -117,6 +149,13 @@ def list_positions(
                 upnl = 0.0
 
             data = r.model_dump()
+            context = get_quantity_context(session, r.account_id, r.canonical_symbol)
+            data.update(context)
+            if context["quantity_mode"] == "quote_contract":
+                data["qty"] = entry_base_to_quote(r.qty, entry)
+                data["notional"] = data["qty"]
+            else:
+                data["notional"] = r.qty * (mark or entry)
             data["unrealized_pnl"] = upnl
             data["realized_pnl"] = float(realized_by_pos.get(pid, 0.0))
             data["instrument_type"] = instrument.value
@@ -137,14 +176,17 @@ def list_positions(
             entry_price=r.entry_price,
             mark_price=r.mark_price,
             unrealized_pnl=position_unrealized_pnl_usdt(
-                account_type=accounts.get(int(r.account_id)).account_type
-                if accounts.get(int(r.account_id))
-                else None,
+                account_type=(
+                    accounts.get(int(r.account_id)).account_type
+                    if accounts.get(int(r.account_id))
+                    else None
+                ),
                 side=r.side,
                 unrealized_pnl=float(r.unrealized_pnl or 0.0),
                 mark_price=float(r.mark_price or 0.0),
             ),
             realized_pnl=float(realized_by_pos.get(int(r.id or 0), 0.0)),
+            **get_quantity_context(session, r.account_id, r.canonical_symbol),
         )
         for r in rows
     ]
@@ -160,6 +202,8 @@ def list_positions(
             realized_pnl=item.realized_pnl,
             notional=item.notional,
             accounts=item.accounts,
+            quantity_mode=item.quantity_mode,
+            quantity_unit=item.quantity_unit,
             instrument_type=instrument_type_from_canonical(item.canonical_symbol).value,
         )
         for item in aggregated
@@ -204,12 +248,12 @@ def close_position_fifo(
         session.refresh(order)
     session.refresh(result.execution)
 
+    position = session.get(PositionCurrent, position_id)
+    context = get_quantity_context(session, position.account_id, position.canonical_symbol)
     return FifoCloseResponse(
-        execution=PositionCloseExecutionRead.model_validate(result.execution),
-        matches=[PositionOrderMatchRead.model_validate(m) for m in result.matches],
-        affected_orders=[
-            PositionOrderRead.model_validate(o) for o in result.affected_orders
-        ],
+        execution=execution_read(result.execution, result.matches, context),
+        matches=[match_read(m, context) for m in result.matches],
+        affected_orders=[order_read(o, context) for o in result.affected_orders],
         realized_pnl=result.realized_pnl,
     )
 
@@ -251,12 +295,12 @@ def close_position_specified(
         session.refresh(order)
     session.refresh(result.execution)
 
+    position = session.get(PositionCurrent, position_id)
+    context = get_quantity_context(session, position.account_id, position.canonical_symbol)
     return FifoCloseResponse(
-        execution=PositionCloseExecutionRead.model_validate(result.execution),
-        matches=[PositionOrderMatchRead.model_validate(m) for m in result.matches],
-        affected_orders=[
-            PositionOrderRead.model_validate(o) for o in result.affected_orders
-        ],
+        execution=execution_read(result.execution, result.matches, context),
+        matches=[match_read(m, context) for m in result.matches],
+        affected_orders=[order_read(o, context) for o in result.affected_orders],
         realized_pnl=result.realized_pnl,
     )
 
@@ -269,7 +313,8 @@ def list_position_matches(
 ) -> list[PositionOrderMatchRead]:
     """List match rows for a given position (newest first)."""
 
-    if session.get(PositionCurrent, position_id) is None:
+    position = session.get(PositionCurrent, position_id)
+    if position is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Position {position_id} not found",
@@ -286,7 +331,8 @@ def list_position_matches(
             .order_by(PositionOrderMatch.matched_at.desc(), PositionOrderMatch.id.desc())
         ).all()
     )
-    return [PositionOrderMatchRead.model_validate(r) for r in rows]
+    context = get_quantity_context(session, position.account_id, position.canonical_symbol)
+    return [match_read(r, context) for r in rows]
 
 
 @router.get(
@@ -298,7 +344,8 @@ def list_position_close_executions(
 ) -> list[PositionCloseExecutionRead]:
     """List close executions for a position (newest first)."""
 
-    if session.get(PositionCurrent, position_id) is None:
+    position = session.get(PositionCurrent, position_id)
+    if position is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Position {position_id} not found",
@@ -314,4 +361,12 @@ def list_position_close_executions(
             )
         ).all()
     )
-    return [PositionCloseExecutionRead.model_validate(r) for r in rows]
+    context = get_quantity_context(session, position.account_id, position.canonical_symbol)
+    matches = session.exec(
+        select(PositionOrderMatch)
+        .join(PositionCloseExecution)
+        .where(PositionCloseExecution.position_id == position_id)
+    ).all()
+    return [
+        execution_read(r, [m for m in matches if m.close_order_id == r.id], context) for r in rows
+    ]

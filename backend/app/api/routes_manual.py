@@ -21,6 +21,7 @@ from ..services.normalize.normalizer import (
     upsert_balances,
     upsert_positions,
 )
+from ..services.pnl_calculator import get_quantity_context, quote_to_entry_base
 from ..services.snapshot_service import write_account_snapshot
 from .deps import SessionDep
 
@@ -36,6 +37,17 @@ def create_manual_snapshot(
         raise HTTPException(status_code=404, detail="account not found")
 
     source = DataSource.SIMULATED if account.is_simulated else DataSource.MANUAL
+
+    positions = []
+    try:
+        for pos in payload.positions:
+            context = get_quantity_context(session, account.id, pos.canonical_symbol, validate=True)
+            data = pos.model_dump()
+            if context["quantity_mode"] == "quote_contract":
+                data["qty"] = quote_to_entry_base(pos.qty, pos.entry_price)
+            positions.append(data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     total_equity = (
         payload.total_equity
@@ -62,17 +74,12 @@ def create_manual_snapshot(
         )
     )
 
-    for pos in payload.positions:
+    for pos in positions:
         session.add(
             PositionSnapshotDaily(
                 snapshot_date=payload.snapshot_date,
                 account_id=payload.account_id,
-                canonical_symbol=pos.canonical_symbol,
-                side=pos.side,
-                qty=pos.qty,
-                entry_price=pos.entry_price,
-                mark_price=pos.mark_price,
-                unrealized_pnl=pos.unrealized_pnl,
+                **pos,
                 source=source,
             )
         )
@@ -101,17 +108,12 @@ def create_manual_snapshot(
             [
                 NormalizedPosition(
                     account_id=payload.account_id,
-                    canonical_symbol=pos.canonical_symbol,
-                    side=pos.side,
-                    qty=pos.qty,
-                    entry_price=pos.entry_price,
-                    mark_price=pos.mark_price,
-                    unrealized_pnl=pos.unrealized_pnl,
+                    **pos,
                     leverage=1.0,
                     margin_mode=None,
                     source=source,
                 )
-                for pos in payload.positions
+                for pos in positions
             ],
         )
 

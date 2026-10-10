@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from ..db.models import DataSource, PositionSide
 from .common import APIModel
@@ -123,7 +123,10 @@ class TradeRowRead(APIModel):
     account_name: str
     canonical_symbol: str
     side: PositionSide
-    close_qty: float
+    close_qty: Optional[float]
+    quantity_mode: Literal["base", "quote_contract"] = "base"
+    quantity_unit: str = ""
+    quantity_warning: Optional[str] = None
     close_price: float
     realized_pnl: float
     closed_at: Optional[datetime] = None

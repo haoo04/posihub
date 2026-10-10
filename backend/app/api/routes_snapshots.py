@@ -13,6 +13,7 @@ from ..schemas.snapshot import (
     DailySnapshotResult,
     PositionSnapshotRead,
 )
+from ..services.pnl_calculator import entry_base_to_quote, get_quantity_context
 from ..services.snapshot_service import write_daily_snapshots
 from .deps import SessionDep
 
@@ -44,7 +45,7 @@ def list_position_snapshots(
     end: date | None = Query(default=None),
     account_id: int | None = Query(default=None),
     canonical_symbol: str | None = Query(default=None),
-) -> list[PositionSnapshotDaily]:
+) -> list[PositionSnapshotRead]:
     stmt = select(PositionSnapshotDaily)
     if start is not None:
         stmt = stmt.where(PositionSnapshotDaily.snapshot_date >= start)
@@ -55,7 +56,14 @@ def list_position_snapshots(
     if canonical_symbol is not None:
         stmt = stmt.where(PositionSnapshotDaily.canonical_symbol == canonical_symbol)
     stmt = stmt.order_by(PositionSnapshotDaily.snapshot_date.desc())  # type: ignore[attr-defined]
-    return list(session.exec(stmt).all())
+    result = []
+    for row in session.exec(stmt).all():
+        context = get_quantity_context(session, row.account_id, row.canonical_symbol)
+        data = row.model_dump()
+        if context["quantity_mode"] == "quote_contract":
+            data["qty"] = entry_base_to_quote(row.qty, row.entry_price)
+        result.append(PositionSnapshotRead(**data, **context))
+    return result
 
 
 @router.post("/daily/run", response_model=DailySnapshotResult)

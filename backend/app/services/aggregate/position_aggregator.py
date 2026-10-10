@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from ...db.models import PositionSide
+from ..pnl_calculator import entry_base_to_quote
 
 
 @dataclass(slots=True)
@@ -29,6 +30,8 @@ class PositionInput:
     mark_price: float
     unrealized_pnl: float = 0.0
     realized_pnl: float = 0.0
+    quantity_mode: str = "base"
+    quantity_unit: str = ""
 
 
 @dataclass(slots=True)
@@ -42,6 +45,8 @@ class AggregatedPosition:
     realized_pnl: float
     notional: float
     accounts: list[int]
+    quantity_mode: str = "base"
+    quantity_unit: str = ""
 
 
 def _signed_qty(side: PositionSide, qty: float) -> float:
@@ -53,11 +58,12 @@ def _signed_qty(side: PositionSide, qty: float) -> float:
 def aggregate_positions(items: Iterable[PositionInput]) -> list[AggregatedPosition]:
     """Aggregate a flat list of per-account positions by canonical symbol."""
 
-    buckets: dict[str, list[PositionInput]] = {}
+    buckets: dict[tuple[str, str, str], list[PositionInput]] = {}
     for item in items:
         if item.qty == 0:
             continue
-        buckets.setdefault(item.canonical_symbol, []).append(item)
+        key = (item.canonical_symbol, item.quantity_mode, item.quantity_unit)
+        buckets.setdefault(key, []).append(item)
 
     out: list[AggregatedPosition] = []
     for symbol, group in buckets.items():
@@ -78,6 +84,7 @@ def _merge_group(group: list[PositionInput]) -> Optional[AggregatedPosition]:
     rpnl_total = 0.0
     accounts: set[int] = set()
     last_mark = 0.0
+    inverse = group[0].quantity_mode == "quote_contract"
 
     for p in group:
         accounts.add(p.account_id)
@@ -85,13 +92,14 @@ def _merge_group(group: list[PositionInput]) -> Optional[AggregatedPosition]:
         rpnl_total += p.realized_pnl
         if p.mark_price:
             last_mark = p.mark_price
-        signed = _signed_qty(p.side, p.qty)
+        external_qty = entry_base_to_quote(p.qty, p.entry_price) if inverse else p.qty
+        signed = _signed_qty(p.side, external_qty)
         if signed > 0:
             long_qty += signed
-            long_cost += signed * p.entry_price
+            long_cost += signed / p.entry_price if inverse else signed * p.entry_price
         elif signed < 0:
             short_qty += -signed  # store as positive
-            short_cost += -signed * p.entry_price
+            short_cost += -signed / p.entry_price if inverse else -signed * p.entry_price
 
     net = long_qty - short_qty
     if net == 0:
@@ -100,13 +108,13 @@ def _merge_group(group: list[PositionInput]) -> Optional[AggregatedPosition]:
     if net > 0:
         side = PositionSide.LONG
         qty = net
-        avg_entry = long_cost / long_qty if long_qty > 0 else 0.0
+        avg_entry = long_qty / long_cost if inverse else long_cost / long_qty
     else:
         side = PositionSide.SHORT
         qty = -net
-        avg_entry = short_cost / short_qty if short_qty > 0 else 0.0
+        avg_entry = short_qty / short_cost if inverse else short_cost / short_qty
 
-    notional = qty * last_mark if last_mark else qty * avg_entry
+    notional = qty if inverse else qty * (last_mark or avg_entry)
     if side == PositionSide.SHORT:
         notional = -notional
 
@@ -120,4 +128,6 @@ def _merge_group(group: list[PositionInput]) -> Optional[AggregatedPosition]:
         realized_pnl=rpnl_total,
         notional=notional,
         accounts=sorted(accounts),
+        quantity_mode=group[0].quantity_mode,
+        quantity_unit=group[0].quantity_unit,
     )

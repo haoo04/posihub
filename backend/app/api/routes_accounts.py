@@ -10,7 +10,16 @@ from fastapi import APIRouter, HTTPException, status
 from sqlmodel import select
 
 from ..core.security import decrypt_secret, encrypt_secret, mask_secret
-from ..db.models import Account, Exchange, ExchangeConnectionState
+from ..db.models import (
+    Account,
+    AccountType,
+    Exchange,
+    ExchangeConnectionState,
+    PositionCloseExecution,
+    PositionCurrent,
+    PositionOrder,
+    PositionSnapshotDaily,
+)
 from ..schemas.account import (
     AccountCreate,
     AccountRead,
@@ -256,9 +265,43 @@ def update_account(
         raise HTTPException(status_code=404, detail="account not found")
 
     data = payload.model_dump(exclude_unset=True)
-    credentials_changed = bool(
-        {"api_key", "api_secret", "passphrase"}.intersection(data)
-    )
+    if (
+        "account_type" in data
+        and data["account_type"] != account.account_type
+        and AccountType.COIN_PERP in (account.account_type, data["account_type"])
+    ):
+        has_orders = (
+            session.exec(
+                select(PositionOrder.id)
+                .join(PositionCurrent)
+                .where(PositionCurrent.account_id == account_id)
+                .limit(1)
+            ).first()
+            is not None
+        )
+        has_closes = (
+            session.exec(
+                select(PositionCloseExecution.id)
+                .join(PositionCurrent)
+                .where(PositionCurrent.account_id == account_id)
+                .limit(1)
+            ).first()
+            is not None
+        )
+        has_snapshots = (
+            session.exec(
+                select(PositionSnapshotDaily.id)
+                .where(PositionSnapshotDaily.account_id == account_id)
+                .limit(1)
+            ).first()
+            is not None
+        )
+        if has_orders or has_closes or has_snapshots:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot change coin_perp account type with order, close or snapshot history; migrate or clear the data first",
+            )
+    credentials_changed = bool({"api_key", "api_secret", "passphrase"}.intersection(data))
     if "api_key" in data:
         account.api_key_enc = encrypt_secret(data.pop("api_key"))
     if "api_secret" in data:
