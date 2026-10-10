@@ -16,6 +16,16 @@ BITGET_LINEAR_PRODUCT = "USDT-FUTURES"
 BITGET_INVERSE_PRODUCT = "COIN-FUTURES"
 
 
+def resolve_history_product_scope(account_type: AccountType, product_scope: str | None) -> AccountType:
+    if account_type == AccountType.BITGET_UTA:
+        if product_scope not in {"usdt_perp", "coin_perp"}:
+            raise ValueError("UTA history requires product_scope: usdt_perp or coin_perp")
+        return AccountType(product_scope)
+    if product_scope is not None and product_scope != account_type.value:
+        raise ValueError("product_scope conflicts with the classic account type")
+    return account_type
+
+
 def expected_bitget_product_type(account_type: AccountType | None) -> str | None:
     if account_type == AccountType.USDT_PERP:
         return BITGET_LINEAR_PRODUCT

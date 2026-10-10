@@ -70,7 +70,7 @@ def _build_order_with_pnl(
     pnl_usdt, pnl_pct = calculate_order_pnl(
         order, position.mark_price, position.side
     )
-    coin = is_coin_margined_account(account.account_type)
+    coin = is_coin_margined_account(account.account_type, position.canonical_symbol)
     pnl_asset = base_asset_from_canonical(position.canonical_symbol) if coin else None
 
     unrealized_native: Optional[float] = None

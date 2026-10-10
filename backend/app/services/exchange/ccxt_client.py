@@ -252,6 +252,8 @@ class CcxtExchangeClient(ExchangeClient):
                     )
                 ):
                     raise ValueError
+            if len({balance.asset for balance in balances}) != len(balances):
+                raise ValueError
         except (KeyError, TypeError, ValueError):
             raise RuntimeError("Invalid Bitget UTA assets or total equity") from None
         return data, balances
@@ -267,6 +269,13 @@ class CcxtExchangeClient(ExchangeClient):
                 raise ValueError
             for row in rows:
                 if not isinstance(row, dict) or not row.get("symbol"):
+                    raise ValueError
+                quantity = row.get("contracts") if row.get("contracts") is not None else row.get("amount")
+                if quantity is None or not math.isfinite(float(quantity)):
+                    raise ValueError
+                if float(quantity) == 0:
+                    continue
+                if (row.get("info") or {}).get("category", category) != category:
                     raise ValueError
                 if row.get("side") not in {"long", "short"}:
                     raise ValueError
@@ -368,6 +377,9 @@ class CcxtExchangeClient(ExchangeClient):
                         raise RuntimeError("Invalid UTA history record; import is incomplete")
                     if row.get("category") != self._history_product_type:
                         raise RuntimeError("UTA history category mismatch; import is incomplete")
+                    record_id = row.get("execId") or row.get("tradeId") if kind == "trade" else row.get("positionId") if kind == "position" else row.get("orderId")
+                    if not record_id or (kind == "trade" and not row.get("orderId")):
+                        raise RuntimeError("UTA history identifier missing; import is incomplete")
                     market = self._client.safe_market(row["symbol"], None, None, "contract")
                     out.append({"info": row, "symbol": market["symbol"]})
                 cursor = str(data.get("cursor") or "")
@@ -387,6 +399,7 @@ class CcxtExchangeClient(ExchangeClient):
         if not normalized:
             return {}
 
+        out: dict[str, float] = {}
         has_tickers = bool(getattr(self._client, "has", {}).get("fetchTickers"))
         if has_tickers:
             try:
@@ -395,7 +408,11 @@ class CcxtExchangeClient(ExchangeClient):
                     lambda: self._client.fetch_tickers(normalized, params),
                     label=f"{self.exchange_name}.fetch_tickers",
                 )
-                return self._parse_ticker_prices(raw or {}, normalized)
+                batch_prices = self._parse_ticker_prices(raw or {}, normalized)
+                if not self._uta or len(batch_prices) == len(normalized):
+                    return batch_prices
+                out.update(batch_prices)
+                normalized = [symbol for symbol in normalized if symbol not in batch_prices]
             except Exception as exc:
                 _logger.debug(
                     "%s fetch_tickers batch failed, falling back: %s",
@@ -403,7 +420,6 @@ class CcxtExchangeClient(ExchangeClient):
                     exc,
                 )
 
-        out: dict[str, float] = {}
         for symbol in normalized:
             try:
                 params = self._fetch_params()

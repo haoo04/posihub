@@ -120,6 +120,8 @@ def sync_account(session: Session, account: Account) -> SyncOutcome:
                 account_type=account.account_type,
                 unmapped=unmapped,
             )
+            if len({(p.canonical_symbol, p.side) for p in positions}) != len(positions):
+                raise ValueError("UTA position mappings conflict")
         else:
             balances = client.fetch_balance()
         if account.account_type == AccountType.SPOT:
@@ -176,11 +178,14 @@ def sync_account(session: Session, account: Account) -> SyncOutcome:
             if is_uta:
                 account.current_equity_usdt = fetched.total_equity_usdt
                 session.add(account)
-            refresh_account_positions_from_orders(session, account.id or 0, now=started)
+            # The UTA pool is authoritative even when the local ledger tracks only part of it.
+            if not is_uta:
+                refresh_account_positions_from_orders(session, account.id or 0, now=started)
             if is_uta:
                 session.flush()
     except Exception as exc:
-        return _record_failure(session, account, f"persist failed: {exc}", started)
+        detail = type(exc).__name__ if is_uta else str(exc)
+        return _record_failure(session, account, f"persist failed: {detail}", started)
 
     account.last_sync_at = started
     account.last_sync_status = "ok"

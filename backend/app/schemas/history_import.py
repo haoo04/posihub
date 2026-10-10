@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional
+from typing import Literal
 
 from .common import APIModel
 
@@ -13,6 +14,7 @@ class HistoryImportPreviewRequest(APIModel):
 
     since: datetime
     until: datetime
+    product_scope: Literal["usdt_perp", "coin_perp"] | None = None
 
 
 class PlannedMatchRead(APIModel):
@@ -74,6 +76,8 @@ class HistoryImportPreviewResponse(APIModel):
     closed_positions: list[ClosedPositionSummaryRead] = []
     summary: ImportSummaryRead
     blockers: list[str] = []
+    complete: bool = True
+    warnings: list[str] = []
 
 
 class HistoryImportCommitRequest(APIModel):

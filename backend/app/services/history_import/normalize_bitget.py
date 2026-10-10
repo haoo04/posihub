@@ -9,6 +9,7 @@ Symbol resolution to a canonical key happens later in the fetcher, where a
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -40,7 +41,8 @@ def _to_float(value: Any) -> Optional[float]:
     if value is None or value == "":
         return None
     try:
-        return float(value)
+        number = float(value)
+        return number if math.isfinite(number) else None
     except (TypeError, ValueError):
         return None
 
@@ -90,6 +92,8 @@ def parse_bitget_direction(
         action = ImportAction.CLOSE
     elif is_open:
         action = ImportAction.OPEN
+    elif pos in {"long", "short"} and bs in {"buy", "sell"}:
+        action = ImportAction.OPEN if (pos == "long") == (bs == "buy") else ImportAction.CLOSE
     elif reduce_only is True:
         action = ImportAction.CLOSE
     elif reduce_only is False:
@@ -126,6 +130,8 @@ def _trade_fill_timestamp(raw: dict[str, Any]) -> Optional[datetime]:
         _ms_to_naive_utc(raw.get("timestamp"))
         or _ms_to_naive_utc(info.get("fillTime"))
         or _ms_to_naive_utc(info.get("cTime"))
+        or _ms_to_naive_utc(info.get("execTime"))
+        or _ms_to_naive_utc(info.get("createdTime"))
     )
 
 
@@ -205,11 +211,13 @@ def aggregate_bitget_trades_to_order_raw(
             or _to_float(info.get("baseVolume"))
             or _to_float(info.get("fillQuantity"))
             or _to_float(info.get("size"))
+            or _to_float(info.get("execQty"))
         )
         price = (
             _to_float(raw.get("price"))
             or _to_float(info.get("price"))
             or _to_float(info.get("fillPrice"))
+            or _to_float(info.get("execPrice"))
         )
         if qty is None or qty <= 0 or price is None or price <= 0:
             continue
@@ -222,11 +230,15 @@ def aggregate_bitget_trades_to_order_raw(
         if reduce_only is None and raw.get("reduceOnly") is not None:
             reduce_only = bool(raw.get("reduceOnly"))
         margin_mode = margin_mode or raw.get("marginMode") or info.get("marginMode")
-        pnl = _to_float(info.get("profit")) or _to_float(info.get("totalProfits"))
+        pnl = _to_float(info.get("execPnl"))
+        if pnl is None:
+            pnl = _to_float(info.get("profit")) or _to_float(info.get("totalProfits"))
         if pnl is not None:
+            if info.get("category") == "COIN-FUTURES":
+                pnl *= price
             realized_pnl += pnl
             has_close_pnl = True
-        placed = _ms_to_naive_utc(info.get("cTime"))
+        placed = _ms_to_naive_utc(info.get("cTime")) if not info.get("category") else None
         if placed is not None and (earliest_place is None or placed < earliest_place):
             earliest_place = placed
 
@@ -245,7 +257,7 @@ def aggregate_bitget_trades_to_order_raw(
         "marginMode": margin_mode,
     }
     if earliest_place is not None:
-        info["cTime"] = int(earliest_place.timestamp() * 1000)
+        info["cTime"] = int(earliest_place.replace(tzinfo=timezone.utc).timestamp() * 1000)
     if has_close_pnl:
         info["totalProfits"] = realized_pnl
 
@@ -257,6 +269,7 @@ def aggregate_bitget_trades_to_order_raw(
         "average": avg_price,
         "reduceOnly": reduce_only,
         "marginMode": margin_mode,
+        "realizedPnl": realized_pnl if has_close_pnl else None,
         "info": info,
     }
 
@@ -286,6 +299,10 @@ def normalize_bitget_order(
         return None
 
     qty = _to_float(raw.get("filled"))
+    if qty is None and info.get("category"):
+        qty = _to_float(info.get("cumExecQty"))
+        if qty is None or qty <= 0:
+            return None
     if qty is None or qty == 0:
         qty = _to_float(raw.get("amount")) or _to_float(info.get("baseVolume")) or _to_float(
             info.get("size")
@@ -296,16 +313,20 @@ def normalize_bitget_order(
     price = (
         _to_float(raw.get("average"))
         or _to_float(info.get("priceAvg"))
+        or _to_float(info.get("avgPrice"))
         or _to_float(raw.get("price"))
     )
     if price is None or price <= 0:
         return None
 
+    reduce_only = raw.get("reduceOnly")
+    if reduce_only is None and str(info.get("reduceOnly", "")).lower() in {"yes", "no", "true", "false"}:
+        reduce_only = str(info["reduceOnly"]).lower() in {"yes", "true"}
     direction = parse_bitget_direction(
         trade_side=info.get("tradeSide") or info.get("posSide"),
         pos_side=info.get("posSide") or info.get("holdSide"),
         side=raw.get("side") or info.get("side"),
-        reduce_only=raw.get("reduceOnly"),
+        reduce_only=reduce_only,
     )
     if direction is None:
         return None
@@ -313,6 +334,7 @@ def normalize_bitget_order(
 
     order_placed_at = (
         _ms_to_naive_utc(info.get("cTime"))
+        or _ms_to_naive_utc(info.get("createdTime"))
         or _ms_to_naive_utc(raw.get("timestamp"))
     )
     # ``created_at`` is the FIFO sort key.  Placement time is deliberately not
@@ -321,18 +343,22 @@ def normalize_bitget_order(
     # low-confidence fallback when the fill endpoint did not return a row.
     update_time = _ms_to_naive_utc(info.get("uTime")) or _ms_to_naive_utc(
         raw.get("lastTradeTimestamp")
-    )
+    ) or _ms_to_naive_utc(info.get("updatedTime"))
     created_at = fill_time or update_time
     if created_at is None:
         return None
 
     realized_pnl = None
     if action == ImportAction.CLOSE:
-        realized_pnl = (
-            _to_float(info.get("totalProfits"))
-            or _to_float(info.get("pnl"))
-            or _to_float(info.get("netProfit"))
-        )
+        realized_pnl = _to_float(raw.get("realizedPnl"))
+        if realized_pnl is None:
+            realized_pnl = next(
+                (value for field in ("totalProfits", "pnl", "netProfit", "execPnl", "cumRealisedPnl")
+                 if (value := _to_float(info.get(field))) is not None),
+                None,
+            )
+            if realized_pnl is not None and info.get("category") == "COIN-FUTURES":
+                realized_pnl *= price
 
     return NormalizedHistoryOrder(
         source_order_id=source_order_id,
@@ -362,7 +388,7 @@ def normalize_bitget_closed_position(
     if not symbol:
         return None
 
-    hold_side = str(raw.get("side") or info.get("holdSide") or "").strip().lower()
+    hold_side = str(raw.get("side") or info.get("holdSide") or info.get("posSide") or "").strip().lower()
     if hold_side == "long":
         side = PositionSide.LONG
     elif hold_side == "short":
@@ -376,19 +402,22 @@ def normalize_bitget_closed_position(
         or _to_float(info.get("openTotalPos"))
         or 0.0
     )
-    entry_price = _to_float(raw.get("entryPrice")) or _to_float(info.get("openAvgPrice")) or 0.0
+    entry_price = _to_float(raw.get("entryPrice")) or _to_float(info.get("openAvgPrice")) or _to_float(info.get("openPriceAvg")) or 0.0
     close_price = (
         _to_float(info.get("closeAvgPrice"))
+        or _to_float(info.get("closePriceAvg"))
         or _to_float(raw.get("markPrice"))
         or 0.0
     )
-    realized_pnl = (
-        _to_float(info.get("netProfit"))
-        or _to_float(info.get("pnl"))
-        or _to_float(raw.get("realizedPnl"))
-        or 0.0
+    realized_pnl = next(
+        (value for value in (
+            _to_float(info.get("netProfit")), _to_float(info.get("pnl")),
+            _to_float(raw.get("realizedPnl")), _to_float(info.get("cumRealisedPnl")),
+        ) if value is not None), 0.0,
     )
 
+    if info.get("category") == "COIN-FUTURES":
+        realized_pnl *= close_price
     return ClosedPositionSummary(
         raw_symbol=str(symbol),
         side=side,
@@ -396,6 +425,6 @@ def normalize_bitget_closed_position(
         entry_price=entry_price,
         close_price=close_price,
         realized_pnl=realized_pnl,
-        open_time=_ms_to_naive_utc(info.get("cTime") or raw.get("timestamp")),
-        close_time=_ms_to_naive_utc(info.get("uTime")),
+        open_time=_ms_to_naive_utc(info.get("cTime") or info.get("createdTime") or raw.get("timestamp")),
+        close_time=_ms_to_naive_utc(info.get("uTime") or info.get("updatedTime")),
     )

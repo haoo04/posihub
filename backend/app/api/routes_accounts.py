@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlmodel import Session, select
 
 from ..core.security import decrypt_secret, encrypt_secret, mask_secret
-from ..db.models import Account, AccountType, Exchange, ExchangeConnectionState
+from ..db.models import Account, AccountType, Exchange, ExchangeConnectionState, HistoryImportPreview
 from ..schemas.account import (
     AccountCreate,
     AccountRead,
@@ -149,6 +149,11 @@ def test_exchange_connection(
     latency_ms: float | None = None
     client = None
     details = {}
+    previous_state = session.exec(select(ExchangeConnectionState).where(ExchangeConnectionState.account_id == account_id)).first()
+    previous_details = json.loads(previous_state.details_json or "{}") if previous_state else {}
+    owner_uid = previous_details.get("owner_uid")
+    if not owner_uid and previous_state and previous_state.status == "connected":
+        owner_uid = previous_details.get("uid")
 
     if account.is_simulated:
         connection_status = "simulated"
@@ -176,6 +181,10 @@ def test_exchange_connection(
             if account.account_type != AccountType.BITGET_UTA:
                 client.fetch_balance()
             if details.get("blockers"):
+                connection_status = "error"
+                message = "; ".join(details["blockers"])
+            if account.account_type == AccountType.BITGET_UTA and owner_uid and details.get("uid") != owner_uid:
+                details.setdefault("blockers", []).append("These credentials belong to a different Bitget UID; create a separate account")
                 connection_status = "error"
                 message = "; ".join(details["blockers"])
             if exchange.name == "bitget" and details.get("uid"):
@@ -223,6 +232,8 @@ def test_exchange_connection(
     state.last_test_at = checked_at
     state.latency_ms = latency_ms
     state.message = message[:500]
+    if account.account_type == AccountType.BITGET_UTA and (owner_uid or connection_status == "connected"):
+        details["owner_uid"] = owner_uid or details.get("uid")
     state.details_json = json.dumps(details) if details else None
     session.add(state)
     session.commit()
@@ -384,11 +395,23 @@ def update_account(
                 ExchangeConnectionState.account_id == account_id
             )
         ).first()
-        if state is not None:
-            session.delete(state)
         if account.account_type == AccountType.BITGET_UTA:
+            if state is not None:
+                stored = json.loads(state.details_json or "{}")
+                state.status = "unknown"
+                state.last_test_at = None
+                state.latency_ms = None
+                state.message = None
+                state.details_json = json.dumps({"owner_uid": stored.get("owner_uid") or stored.get("uid")})
+                session.add(state)
             account.enabled = False
             account.current_equity_usdt = None
+            for preview in session.exec(select(HistoryImportPreview).where(
+                HistoryImportPreview.account_id == account_id, HistoryImportPreview.committed_at == None,
+            )).all():
+                session.delete(preview)
+        elif state is not None:
+            session.delete(state)
 
     session.add(account)
     try:

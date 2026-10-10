@@ -133,6 +133,9 @@ class HistoryFetchResult:
     orders: list[NormalizedHistoryOrder] = field(default_factory=list)
     closed_positions: list[ClosedPositionSummary] = field(default_factory=list)
     stats: HistoryFetchStats = field(default_factory=HistoryFetchStats)
+    complete: bool = True
+    warnings: list[str] = field(default_factory=list)
+    blockers: list[str] = field(default_factory=list)
 
     def __iter__(self):
         # Existing callers unpacked ``orders, closed_positions``.  Keep that
