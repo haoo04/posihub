@@ -2,6 +2,12 @@ import type { PositionOrderWithPnL } from "@/api/types";
 
 export const QTY_EPS = 1e-9;
 
+export function quantityTolerance(order: Pick<PositionOrderWithPnL, "quantity_mode" | "entry_price">): number {
+  return order.quantity_mode === "quote_contract"
+    ? Math.max(QTY_EPS, order.entry_price * 1e-8)
+    : QTY_EPS;
+}
+
 export type OrderSortField =
   | "created_at"
   | "updated_at"
@@ -34,7 +40,7 @@ export function partitionOrders(orders: PositionOrderWithPnL[]) {
   const history: PositionOrderWithPnL[] = [];
 
   for (const order of orders) {
-    if (order.remaining_qty > QTY_EPS) {
+    if (order.remaining_qty > (order.quantity_mode === "quote_contract" ? 0 : QTY_EPS)) {
       active.push(order);
     } else {
       history.push(order);

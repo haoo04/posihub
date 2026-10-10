@@ -59,6 +59,15 @@ export function fmtQty(value: number | null | undefined, digits = 4): string {
   });
 }
 
+export function fmtQuantity(value: number | null | undefined, unit: string): string {
+  return value == null ? "—" : `${fmtQty(value, 8)} ${unit}`.trim();
+}
+
+export function fmtContractValue(qty: number | undefined, price: number | undefined, asset: string): string | null {
+  if (!qty || qty <= 0 || !price || price <= 0) return null;
+  return fmtQuantity(qty / price, asset);
+}
+
 export function fmtPrice(value: number | null | undefined): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";
   if (Math.abs(value) >= 100) {

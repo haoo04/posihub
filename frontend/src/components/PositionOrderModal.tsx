@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Form, Input, InputNumber, Modal, Select, message } from "antd";
+import { Form, Input, InputNumber, Modal, Select, Typography, message } from "antd";
 import {
   useCreatePositionOrder,
   useUpdatePositionOrder,
@@ -9,7 +9,9 @@ import type {
   PositionOrderCreate,
   PositionOrderUpdate,
   PositionOrderWithPnL,
+  QuantityMode,
 } from "@/api/types";
+import { fmtContractValue } from "@/utils/format";
 
 interface PositionOrderModalProps {
   open: boolean;
@@ -17,6 +19,9 @@ interface PositionOrderModalProps {
   order?: PositionOrderWithPnL;
   marginAsset?: string | null;
   isSpot?: boolean;
+  quantityMode?: QuantityMode;
+  quantityUnit?: string;
+  baseAsset?: string;
   onCancel: () => void;
   onSuccess: () => void;
 }
@@ -27,6 +32,9 @@ export function PositionOrderModal({
   order,
   marginAsset = null,
   isSpot = false,
+  quantityMode = "base",
+  quantityUnit = "",
+  baseAsset = "",
   onCancel,
   onSuccess,
 }: PositionOrderModalProps) {
@@ -34,6 +42,10 @@ export function PositionOrderModal({
   const createMutation = useCreatePositionOrder();
   const updateMutation = useUpdatePositionOrder();
   const isEdit = !!order;
+  const inverse = (order?.quantity_mode ?? quantityMode) === "quote_contract";
+  const openQty = Form.useWatch("open_qty", form);
+  const entryPrice = Form.useWatch("entry_price", form);
+  const preview = inverse ? fmtContractValue(openQty, entryPrice, baseAsset) : null;
 
   useEffect(() => {
     if (open && order) {
@@ -132,24 +144,25 @@ export function PositionOrderModal({
 
         <Form.Item
           name="open_qty"
-          label={isSpot ? "买入数量" : "开仓数量"}
+          label={inverse ? "成交数量 (USD)" : isSpot ? "买入数量" : "开仓数量"}
+          extra={inverse ? `请填写 Bybit 的 Filled Quantity，不要填写 ${baseAsset} 成交额` : undefined}
           rules={[
             { required: true, message: "请输入开仓数量" },
-            { type: "number", min: 0.00001, message: "数量必须大于0" },
+            { type: "number", min: inverse ? Number.MIN_VALUE : 0.00001, message: "数量必须大于0" },
           ]}
         >
           <InputNumber
             style={{ width: "100%" }}
-            placeholder="0.001"
-            step={0.001}
-            precision={8}
+            placeholder={inverse ? "65" : "0.001"}
+            step={inverse ? 1 : 0.001}
+            precision={inverse ? undefined : 8}
           />
         </Form.Item>
 
         {isEdit && (
           <Form.Item
             name="remaining_qty"
-            label="剩余数量"
+            label={inverse ? "剩余数量 (USD)" : `剩余数量${quantityUnit ? ` (${quantityUnit})` : ""}`}
             rules={[
               { required: true, message: "请输入剩余数量" },
               { type: "number", min: 0, message: "数量不能为负" },
@@ -157,9 +170,9 @@ export function PositionOrderModal({
           >
             <InputNumber
               style={{ width: "100%" }}
-              placeholder="0.001"
-              step={0.001}
-              precision={8}
+              placeholder={inverse ? "65" : "0.001"}
+              step={inverse ? 1 : 0.001}
+              precision={inverse ? undefined : 8}
             />
           </Form.Item>
         )}
@@ -179,6 +192,8 @@ export function PositionOrderModal({
             precision={8}
           />
         </Form.Item>
+
+        {preview && <Typography.Text type="secondary">开仓成交额约 {preview}</Typography.Text>}
 
         {!isSpot && (
           <>

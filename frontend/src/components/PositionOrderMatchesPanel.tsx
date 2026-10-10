@@ -1,7 +1,7 @@
 import { Table, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { PositionOrderMatchRead } from "@/api/types";
-import { fmtPrice, fmtQty } from "@/utils/format";
+import { fmtPrice, fmtQuantity } from "@/utils/format";
 import { PnlText } from "./PnlText";
 import RelativeTime from "./RelativeTime";
 
@@ -34,7 +34,7 @@ export function PositionOrderMatchesPanel({
       dataIndex: "matched_qty",
       align: "right",
       width: 100,
-      render: (v: number) => <span className="posi-numeric">{fmtQty(v)}</span>,
+      render: (v: number, record) => <span className="posi-numeric">{fmtQuantity(v, record.quantity_unit)}</span>,
     },
     {
       title: closeLabel,

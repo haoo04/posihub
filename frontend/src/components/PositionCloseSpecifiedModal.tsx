@@ -10,8 +10,9 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { usePositionOrders, useSpecifiedClosePosition } from "@/api/hooks";
-import type { PositionOrderWithPnL } from "@/api/types";
-import { fmtPrice, fmtQty } from "@/utils/format";
+import type { PositionOrderWithPnL, QuantityMode } from "@/api/types";
+import { fmtContractValue, fmtPrice, fmtQuantity } from "@/utils/format";
+import { quantityTolerance } from "@/utils/positionOrders";
 
 const { Text } = Typography;
 
@@ -22,6 +23,9 @@ interface PositionCloseSpecifiedModalProps {
   positionId: number;
   defaultClosePrice?: number;
   isSpot?: boolean;
+  quantityMode?: QuantityMode;
+  quantityUnit?: string;
+  baseAsset?: string;
   onCancel: () => void;
   onSuccess: () => void;
 }
@@ -31,6 +35,9 @@ export function PositionCloseSpecifiedModal({
   positionId,
   defaultClosePrice,
   isSpot = false,
+  quantityMode = "base",
+  quantityUnit = "",
+  baseAsset = "",
   onCancel,
   onSuccess,
 }: PositionCloseSpecifiedModalProps) {
@@ -38,15 +45,17 @@ export function PositionCloseSpecifiedModal({
   const closeMutation = useSpecifiedClosePosition();
   const { data: orders } = usePositionOrders(positionId);
   const [qtyByOrderId, setQtyByOrderId] = useState<Record<number, number>>({});
+  const inverse = quantityMode === "quote_contract";
+  const closePrice = Form.useWatch("close_price", form);
 
   const openOrders = useMemo(() => {
-    const rows = (orders ?? []).filter((o) => o.remaining_qty > QTY_EPS);
+    const rows = (orders ?? []).filter((o) => o.remaining_qty > (inverse ? 0 : QTY_EPS));
     return [...rows].sort(
       (a, b) =>
         new Date(a.created_at).getTime() - new Date(b.created_at).getTime() ||
         a.id - b.id
     );
-  }, [orders]);
+  }, [orders, inverse]);
 
   const allocatedTotal = useMemo(
     () =>
@@ -56,6 +65,8 @@ export function PositionCloseSpecifiedModal({
       ),
     [openOrders, qtyByOrderId]
   );
+
+  const preview = inverse ? fmtContractValue(allocatedTotal, closePrice, baseAsset) : null;
 
   useEffect(() => {
     if (open) {
@@ -75,11 +86,11 @@ export function PositionCloseSpecifiedModal({
       render: (id: number) => <Text code>{id}</Text>,
     },
     {
-      title: "剩余",
+      title: `剩余${quantityUnit ? ` (${quantityUnit})` : ""}`,
       dataIndex: "remaining_qty",
       width: 120,
       render: (q: number) => (
-        <span className="posi-numeric">{fmtQty(q)}</span>
+        <span className="posi-numeric">{fmtQuantity(q, quantityUnit)}</span>
       ),
     },
     {
@@ -91,16 +102,16 @@ export function PositionCloseSpecifiedModal({
       ),
     },
     {
-      title: isSpot ? "本次卖出" : "本次平仓",
+      title: inverse ? "本次平仓 (USD)" : isSpot ? "本次卖出" : "本次平仓",
       key: "allocate",
       width: 160,
       render: (_, record) => (
         <InputNumber
           size="small"
           min={0}
-          max={record.remaining_qty}
-          step={0.001}
-          precision={8}
+          max={record.remaining_qty + (inverse ? quantityTolerance(record) : 0)}
+          step={inverse ? 1 : 0.001}
+          precision={inverse ? undefined : 8}
           style={{ width: "100%" }}
           placeholder="0"
           value={
@@ -130,10 +141,10 @@ export function PositionCloseSpecifiedModal({
       const legs = openOrders
         .map((o) => {
           const q = qtyByOrderId[o.id] ?? 0;
-          if (q > QTY_EPS) {
-            if (q - o.remaining_qty > QTY_EPS) {
+          if (q > (inverse ? 0 : QTY_EPS)) {
+            if (q - o.remaining_qty > quantityTolerance(o)) {
               throw new Error(
-                `订单 ${o.id}：分配数量不能超过剩余 ${fmtQty(o.remaining_qty)}`
+                `订单 ${o.id}：分配数量不能超过剩余 ${fmtQuantity(o.remaining_qty, quantityUnit)}`
               );
             }
             return { open_order_id: o.id, qty: q };
@@ -153,7 +164,7 @@ export function PositionCloseSpecifiedModal({
         return;
       }
 
-      if (allocatedTotal <= QTY_EPS) {
+      if (allocatedTotal <= (inverse ? 0 : QTY_EPS)) {
         message.warning(isSpot ? "卖出数量总和必须大于 0" : "平仓数量总和必须大于 0");
         return;
       }
@@ -209,7 +220,7 @@ export function PositionCloseSpecifiedModal({
         description={
           <span>
             当前分配合计：
-            <span className="posi-numeric">{fmtQty(allocatedTotal)}</span>
+            <span className="posi-numeric">{fmtQuantity(allocatedTotal, quantityUnit)}</span>
             （将作为本次{isSpot ? "卖出" : "平仓"}总量提交）
           </span>
         }
@@ -247,7 +258,7 @@ export function PositionCloseSpecifiedModal({
       />
 
       <Text type="secondary" style={{ fontSize: 12, display: "block", marginTop: 12 }}>
-        与 FIFO 相同，每条消耗会写入 position_order_matches 供已实现盈亏与审计使用。
+        {preview ? `平仓成交额约 ${preview}。` : ""}已实现盈亏按每条订单的开仓价计算。
       </Text>
     </Modal>
   );
