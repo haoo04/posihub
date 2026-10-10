@@ -138,7 +138,13 @@ def normalize_positions(
                 entry_price=raw.entry_price,
                 mark_price=raw.mark_price,
                 unrealized_pnl=raw_position_unrealized_pnl_to_usdt(
-                    account_type=account_type,
+                    account_type=(
+                        AccountType.COIN_PERP
+                        if raw.product_type == "COIN-FUTURES"
+                        else AccountType.USDT_PERP
+                        if raw.product_type == "USDT-FUTURES"
+                        else account_type
+                    ),
                     unrealized_pnl=raw.unrealized_pnl,
                     mark_price=raw.mark_price,
                 ),

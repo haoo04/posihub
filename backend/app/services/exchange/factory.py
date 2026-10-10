@@ -53,7 +53,9 @@ def resolve_default_type(account: Account) -> Optional[str]:
     return resolve_ccxt_options(account).default_type
 
 
-def build_client_for_account(session: Session, account: Account) -> ExchangeClient:
+def build_client_for_account(
+    session: Session, account: Account, *, product_scope: AccountType | None = None
+) -> ExchangeClient:
     """Build a CCXT-backed connector for the given account."""
 
     if account.is_simulated:
@@ -62,6 +64,8 @@ def build_client_for_account(session: Session, account: Account) -> ExchangeClie
     exchange = session.get(Exchange, account.exchange_id)
     if exchange is None:
         raise LookupError(f"Exchange #{account.exchange_id} not found")
+    if account.account_type == AccountType.BITGET_UTA and exchange.name != "bitget":
+        raise ValueError("bitget_uta is only supported by Bitget")
 
     api_key = decrypt_secret(account.api_key_enc)
     api_secret = decrypt_secret(account.api_secret_enc)
@@ -75,6 +79,10 @@ def build_client_for_account(session: Session, account: Account) -> ExchangeClie
         passphrase=passphrase,
         default_type=ccxt_opts.default_type,
         default_sub_type=ccxt_opts.default_sub_type,
+        uta=account.account_type == AccountType.BITGET_UTA,
+        history_product_type=(
+            "COIN-FUTURES" if product_scope == AccountType.COIN_PERP else "USDT-FUTURES"
+        ),
     )
 
 

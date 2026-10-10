@@ -3,15 +3,29 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+import json
+from datetime import date, timezone
+from zoneinfo import ZoneInfo
 
 from sqlmodel import Session, select
 
-from ...db.models import AccountBalanceCurrent, AccountSnapshotDaily
+from ...core.config import get_settings
+from ...db.models import Account, AccountType, DataMigration, AccountBalanceCurrent, AccountSnapshotDaily
 from ..aggregate.pnl_calculator import aggregate_daily_equity
 from .scope import PerformanceScope
 
 STABLE_ASSETS = frozenset({"USDT", "USDC", "USD"})
+
+
+def uta_basis_start_date(session: Session, account: Account) -> date | None:
+    if account.account_type != AccountType.BITGET_UTA:
+        return None
+    migration = session.get(DataMigration, f"bitget-uta-cutover-v1:{account.id}")
+    if migration:
+        return date.fromisoformat(json.loads(migration.details_json)["cutover_date"])
+    return account.created_at.replace(tzinfo=timezone.utc).astimezone(
+        ZoneInfo(get_settings().app_timezone)
+    ).date()
 
 
 @dataclass(slots=True)

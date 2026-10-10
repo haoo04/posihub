@@ -19,6 +19,9 @@ class RawBalance:
     equity: float
     available: float
     frozen: float
+    wallet_balance: float | None = None
+    usd_value: float | None = None
+    debt: float = 0.0
 
 
 @dataclass(slots=True)
@@ -32,6 +35,7 @@ class RawPosition:
     leverage: float = 1.0
     margin_mode: Optional[str] = None
     contract_size: float = 1.0
+    product_type: str | None = None
 
 
 @dataclass(slots=True)
@@ -47,6 +51,7 @@ class RawMarket:
 class FetchResult:
     balances: list[RawBalance] = field(default_factory=list)
     positions: list[RawPosition] = field(default_factory=list)
+    total_equity_usdt: float | None = None
 
 
 class ExchangeClient(ABC):
@@ -135,6 +140,11 @@ class ExchangeClient(ABC):
             balances=self.fetch_balance(),
             positions=self.fetch_positions(),
         )
+
+    def fetch_account_details(self) -> dict[str, Any]:
+        """Return private identity/capability diagnostics, never credentials."""
+
+        return {}
 
     def close(self) -> None:  # pragma: no cover - default no-op
         """Release any underlying network resources."""

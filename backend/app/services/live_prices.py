@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from sqlmodel import Session, select
 
 from ..core.logging import get_logger
-from ..db.models import Account, Exchange, PositionCurrent, SymbolMapping
+from ..db.models import Account, AccountType, Exchange, PositionCurrent, SymbolMapping
 from .exchange.ccxt_client import CcxtExchangeClient
 from .exchange.factory import resolve_ccxt_options
 from .position_market import position_matches_market
@@ -53,7 +53,7 @@ def _fallback_raw_symbol(canonical_symbol: str, account_type: str) -> str:
     instrument = parts[2] if len(parts) > 2 else "SPOT"
     if instrument == "SPOT":
         return f"{base}/{quote}"
-    if account_type == "coin_perp" and instrument == "PERP":
+    if (account_type == "coin_perp" or (account_type == "bitget_uta" and quote == "USD")) and instrument == "PERP":
         return f"{base}/{quote}:{base}"
     return f"{base}/{quote}:{quote}"
 
@@ -157,6 +157,7 @@ def fetch_live_position_prices(
                 exchange.name,
                 default_type=options.default_type,
                 default_sub_type=options.default_sub_type,
+                uta=account.account_type == AccountType.BITGET_UTA,
             )
             raw_prices = client.fetch_last_prices(requested)
             updated_at = _utcnow()

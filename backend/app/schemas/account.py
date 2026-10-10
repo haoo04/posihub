@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from pydantic import Field, model_validator
@@ -52,6 +52,8 @@ class AccountRead(APIModel):
     consecutive_failures: int = 0
     created_at: datetime
     api_key_masked: Optional[str] = None
+    current_equity_usdt: float | None = None
+    uta_basis_start_date: date | None = None
 
 
 class AccountSyncStatus(APIModel):

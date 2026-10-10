@@ -23,3 +23,9 @@ def test_mask_secret() -> None:
     assert mask_secret("abcdef12") == "abcd****"
     assert mask_secret("abc") == "***"
     assert mask_secret(None) == ""
+
+
+def test_decrypt_credentials_from_cryptography_43() -> None:
+    # Synthetic token generated with cryptography 43.0.3 and the test encryption key.
+    token = "gAAAAABqyhR00SuEwiJUoEsgNH5d6ojU4gMV4rN5kMV7UsVrusGrRNJ3caKS648L8lEI7RAXVhyoeNTBViqO06xKiqLs2TvUEKtIOXrjXyHlEc-y4SoSZhE="
+    assert decrypt_secret(token) == "synthetic legacy credential"

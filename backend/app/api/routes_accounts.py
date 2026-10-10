@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import time
 from contextlib import suppress
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, status
-from sqlmodel import select
+from sqlmodel import Session, select
 
 from ..core.security import decrypt_secret, encrypt_secret, mask_secret
-from ..db.models import Account, Exchange, ExchangeConnectionState
+from ..db.models import Account, AccountType, Exchange, ExchangeConnectionState
 from ..schemas.account import (
     AccountCreate,
     AccountRead,
@@ -24,6 +25,7 @@ from ..schemas.exchange import (
 )
 from ..services.exchange.factory import build_client_for_account
 from ..services.sync_service import sync_account, sync_account_by_id
+from ..services.performance.equity_metrics import uta_basis_start_date
 from .deps import SessionDep
 
 router = APIRouter(prefix="/api/v1", tags=["accounts"])
@@ -77,6 +79,14 @@ def _connection_read(
     else:
         connection_status = state.status
 
+    stored = json.loads(state.details_json or "{}") if state else {}
+    safe_details = {
+        key: stored[key]
+        for key in ("account_mode", "account_level", "hold_mode", "permission_type", "permissions", "capabilities")
+        if key in stored
+    }
+    if uid := stored.get("uid"):
+        safe_details["uid_masked"] = "***" + str(uid)[-4:] if len(str(uid)) > 4 else "***"
     return ExchangeConnectionRead(
         account_id=int(account.id or 0),
         exchange_id=account.exchange_id,
@@ -90,6 +100,9 @@ def _connection_read(
         last_test_at=state.last_test_at if state else None,
         latency_ms=state.latency_ms if state else None,
         message=state.message if state else None,
+        details=safe_details or None,
+        blockers=stored.get("blockers", []),
+        warnings=stored.get("warnings", []),
     )
 
 
@@ -135,6 +148,7 @@ def test_exchange_connection(
     message = "ok"
     latency_ms: float | None = None
     client = None
+    details = {}
 
     if account.is_simulated:
         connection_status = "simulated"
@@ -157,7 +171,34 @@ def test_exchange_connection(
                 secrets_to_mask.append(plain)
         try:
             client = build_client_for_account(session, account)
-            client.fetch_balance()
+            if exchange.name == "bitget":
+                details = client.fetch_account_details()
+            if account.account_type != AccountType.BITGET_UTA:
+                client.fetch_balance()
+            if details.get("blockers"):
+                connection_status = "error"
+                message = "; ".join(details["blockers"])
+            if exchange.name == "bitget" and details.get("uid"):
+                others = session.exec(select(Account).where(
+                    Account.exchange_id == account.exchange_id,
+                    Account.id != account.id,
+                    Account.enabled == True,
+                    Account.is_simulated == False,
+                )).all()
+                for other in others:
+                    if AccountType.BITGET_UTA not in (account.account_type, other.account_type):
+                        continue
+                    other_state = session.exec(select(ExchangeConnectionState).where(
+                        ExchangeConnectionState.account_id == other.id
+                    )).first()
+                    other_uid = json.loads(other_state.details_json or "{}").get("uid") if other_state else None
+                    if not other_uid or other_uid == details["uid"]:
+                        details.setdefault("blockers", []).append(
+                            f"Bitget account #{other.id} must be tested or disabled before this mode can be enabled"
+                        )
+                if details.get("blockers"):
+                    connection_status = "error"
+                    message = "; ".join(details["blockers"])
             latency_ms = round((time.perf_counter() - started) * 1000, 1)
         except Exception as exc:
             connection_status = "error"
@@ -182,6 +223,7 @@ def test_exchange_connection(
     state.last_test_at = checked_at
     state.latency_ms = latency_ms
     state.message = message[:500]
+    state.details_json = json.dumps(details) if details else None
     session.add(state)
     session.commit()
     session.refresh(state)
@@ -193,7 +235,7 @@ def test_exchange_connection(
 # ---------------------------------------------------------------------------
 
 
-def _to_read(account: Account) -> AccountRead:
+def _to_read(account: Account, session: Session | None = None) -> AccountRead:
     api_key_plain = None
     try:
         api_key_plain = decrypt_secret(account.api_key_enc)
@@ -212,13 +254,66 @@ def _to_read(account: Account) -> AccountRead:
         consecutive_failures=account.consecutive_failures,
         created_at=account.created_at,
         api_key_masked=mask_secret(api_key_plain) if api_key_plain else None,
+        current_equity_usdt=account.current_equity_usdt,
+        uta_basis_start_date=uta_basis_start_date(session, account) if session else None,
     )
 
 
 @router.get("/accounts", response_model=list[AccountRead])
 def list_accounts(session: SessionDep) -> list[AccountRead]:
     rows = list(session.exec(select(Account)).all())
-    return [_to_read(r) for r in rows]
+    return [_to_read(r, session) for r in rows]
+
+
+def _validate_bitget_activation(session: Session, account: Account, exchange: Exchange) -> None:
+    if not account.enabled or account.is_simulated or exchange.name != "bitget":
+        return
+    others = list(session.exec(
+        select(Account).where(
+            Account.exchange_id == exchange.id,
+            Account.id != account.id,
+            Account.enabled == True,
+            Account.is_simulated == False,
+        ).execution_options(populate_existing=True)
+    ).all())
+    is_uta = account.account_type == AccountType.BITGET_UTA
+    if not is_uta:
+        others = [row for row in others if row.account_type == AccountType.BITGET_UTA]
+        if not others:
+            return
+
+    def identity(row: Account) -> tuple[ExchangeConnectionState | None, dict]:
+        state = session.exec(select(ExchangeConnectionState).where(
+            ExchangeConnectionState.account_id == row.id
+        )).first()
+        details = json.loads(state.details_json or "{}") if state else {}
+        if not details.get("uid") and row.account_type != AccountType.BITGET_UTA:
+            client = None
+            try:
+                client = build_client_for_account(session, row)
+                details = client.fetch_account_details()
+            except Exception:
+                raise HTTPException(status_code=409, detail=f"Cannot verify Bitget account #{row.id} UID; test or disable it first") from None
+            finally:
+                if client is not None:
+                    client.close()
+            if details.get("uid"):
+                if state is None:
+                    state = ExchangeConnectionState(account_id=row.id)
+                state.details_json = json.dumps(details)
+                session.add(state)
+        return state, details
+
+    state, details = identity(account)
+    uid = details.get("uid")
+    if not uid or (is_uta and (state is None or state.status != "connected" or details.get("blockers"))):
+        raise HTTPException(status_code=409, detail="Test the Bitget connection successfully before enabling UTA")
+    for other in others:
+        _, other_details = identity(other)
+        if not other_details.get("uid"):
+            raise HTTPException(status_code=409, detail=f"Bitget account #{other.id} has an unknown UID; test or disable it first")
+        if other_details["uid"] == uid:
+            raise HTTPException(status_code=409, detail=f"Bitget account #{other.id} with the same UID is already enabled; disable it or use the migration script")
 
 
 @router.post(
@@ -231,6 +326,10 @@ def create_account(payload: AccountCreate, session: SessionDep) -> AccountRead:
     if exchange is None:
         raise HTTPException(status_code=404, detail="exchange not found")
 
+    is_uta = payload.account_type == AccountType.BITGET_UTA
+    if is_uta and (exchange.name != "bitget" or payload.is_simulated):
+        raise HTTPException(status_code=400, detail="bitget_uta requires a real Bitget account")
+
     account = Account(
         exchange_id=payload.exchange_id,
         account_name=payload.account_name,
@@ -239,12 +338,18 @@ def create_account(payload: AccountCreate, session: SessionDep) -> AccountRead:
         api_secret_enc=encrypt_secret(payload.api_secret) if payload.api_secret else None,
         passphrase_enc=encrypt_secret(payload.passphrase) if payload.passphrase else None,
         is_simulated=payload.is_simulated,
-        enabled=payload.enabled,
+        enabled=False if is_uta else payload.enabled,
     )
     session.add(account)
+    try:
+        session.flush()
+        _validate_bitget_activation(session, account, exchange)
+    except Exception:
+        session.rollback()
+        raise
     session.commit()
     session.refresh(account)
-    return _to_read(account)
+    return _to_read(account, session)
 
 
 @router.patch("/accounts/{account_id}", response_model=AccountRead)
@@ -256,6 +361,10 @@ def update_account(
         raise HTTPException(status_code=404, detail="account not found")
 
     data = payload.model_dump(exclude_unset=True)
+    was_enabled = account.enabled
+    next_type = data.get("account_type", account.account_type)
+    if next_type != account.account_type and AccountType.BITGET_UTA in (next_type, account.account_type):
+        raise HTTPException(status_code=409, detail="Use the Bitget UTA migration script to change account mode")
     credentials_changed = bool(
         {"api_key", "api_secret", "passphrase"}.intersection(data)
     )
@@ -277,11 +386,25 @@ def update_account(
         ).first()
         if state is not None:
             session.delete(state)
+        if account.account_type == AccountType.BITGET_UTA:
+            account.enabled = False
+            account.current_equity_usdt = None
 
     session.add(account)
+    try:
+        # Flush before checking identities: SQLite serializes competing activations.
+        session.flush()
+        exchange = session.get(Exchange, account.exchange_id)
+        if exchange is None:
+            raise HTTPException(status_code=404, detail="exchange not found")
+        if not was_enabled or credentials_changed:
+            _validate_bitget_activation(session, account, exchange)
+    except Exception:
+        session.rollback()
+        raise
     session.commit()
     session.refresh(account)
-    return _to_read(account)
+    return _to_read(account, session)
 
 
 @router.delete(
