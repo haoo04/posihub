@@ -1,7 +1,9 @@
 import { useEffect, useMemo } from "react";
 import { Alert, Form, InputNumber, Modal, Typography, message } from "antd";
 import { useFifoClosePosition, usePositionOrders } from "@/api/hooks";
-import { fmtPrice, fmtQty } from "@/utils/format";
+import { fmtContractValue, fmtPrice, fmtQuantity } from "@/utils/format";
+import type { QuantityMode } from "@/api/types";
+import { quantityTolerance } from "@/utils/positionOrders";
 
 const { Text } = Typography;
 
@@ -10,6 +12,9 @@ interface PositionCloseFifoModalProps {
   positionId: number;
   defaultClosePrice?: number;
   isSpot?: boolean;
+  quantityMode?: QuantityMode;
+  quantityUnit?: string;
+  baseAsset?: string;
   onCancel: () => void;
   onSuccess: () => void;
 }
@@ -19,17 +24,27 @@ export function PositionCloseFifoModal({
   positionId,
   defaultClosePrice,
   isSpot = false,
+  quantityMode = "base",
+  quantityUnit = "",
+  baseAsset = "",
   onCancel,
   onSuccess,
 }: PositionCloseFifoModalProps) {
   const [form] = Form.useForm();
   const closeMutation = useFifoClosePosition();
   const { data: orders } = usePositionOrders(positionId);
+  const inverse = quantityMode === "quote_contract";
+  const closeQty = Form.useWatch("close_qty", form);
+  const closePrice = Form.useWatch("close_price", form);
+  const preview = inverse ? fmtContractValue(closeQty, closePrice, baseAsset) : null;
 
   const totalRemaining = useMemo(
     () => (orders ?? []).reduce((sum, o) => sum + o.remaining_qty, 0),
     [orders]
   );
+  const tolerance = inverse
+    ? (orders ?? []).reduce((sum, order) => sum + quantityTolerance(order), 0)
+    : 1e-9;
 
   useEffect(() => {
     if (open) {
@@ -86,7 +101,7 @@ export function PositionCloseFifoModal({
         description={
           <span>
             {isSpot ? "可卖总量" : "可平总量"}：
-            <span className="posi-numeric">{fmtQty(totalRemaining)}</span>
+            <span className="posi-numeric">{fmtQuantity(totalRemaining, quantityUnit)}</span>
           </span>
         }
       />
@@ -94,13 +109,14 @@ export function PositionCloseFifoModal({
       <Form form={form} layout="vertical">
         <Form.Item
           name="close_qty"
-          label={isSpot ? "卖出数量" : "平仓数量"}
+          label={inverse ? "平仓成交数量 (USD)" : isSpot ? "卖出数量" : "平仓数量"}
+          extra={inverse ? `请填写 Bybit 的 Filled Quantity，不要填写 ${baseAsset} 成交额` : undefined}
           rules={[
             { required: true, message: isSpot ? "请输入卖出数量" : "请输入平仓数量" },
-            { type: "number", min: 0.00000001, message: "数量必须大于 0" },
+            { type: "number", min: inverse ? Number.MIN_VALUE : 0.00000001, message: "数量必须大于 0" },
             {
               validator: (_, value) =>
-                value > totalRemaining + 1e-9
+                value > totalRemaining + Math.max(1e-9, tolerance)
                   ? Promise.reject(new Error("超过可平总量"))
                   : Promise.resolve(),
             },
@@ -108,9 +124,9 @@ export function PositionCloseFifoModal({
         >
           <InputNumber
             style={{ width: "100%" }}
-            placeholder="0.5"
-            step={0.001}
-            precision={8}
+            placeholder={inverse ? "65" : "0.5"}
+            step={inverse ? 1 : 0.001}
+            precision={inverse ? undefined : 8}
             min={0}
           />
         </Form.Item>
@@ -134,8 +150,9 @@ export function PositionCloseFifoModal({
           />
         </Form.Item>
 
+        {preview && <Text type="secondary" style={{ display: "block" }}>平仓成交额约 {preview}</Text>}
         <Text type="secondary" style={{ fontSize: 12 }}>
-          已实现盈亏会按每个被消耗的订单分别记录到 position_order_matches。
+          已实现盈亏按每条订单的开仓价计算，显示为 USDT 等值。
         </Text>
       </Form>
     </Modal>

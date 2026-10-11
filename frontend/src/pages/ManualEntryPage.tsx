@@ -17,7 +17,7 @@ import {
 import { DeleteOutlined, PlusOutlined, SaveOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { PageHeader } from "@/components/PageHeader";
-import { useAccounts, useCreateManualSnapshot } from "@/api/hooks";
+import { useAccounts, useCreateManualSnapshot, useExchanges } from "@/api/hooks";
 import type { ManualSnapshotCreate, PositionSide } from "@/api/types";
 
 const { Text } = Typography;
@@ -49,8 +49,13 @@ interface FormValues {
 
 export function ManualEntryPage() {
   const accounts = useAccounts();
+  const exchanges = useExchanges();
   const create = useCreateManualSnapshot();
   const [form] = Form.useForm<FormValues>();
+  const accountId = Form.useWatch("account_id", form);
+  const selectedAccount = accounts.data?.find((a) => a.id === accountId);
+  const isBybitInverse = selectedAccount?.account_type === "coin_perp"
+    && exchanges.data?.find((e) => e.id === selectedAccount.exchange_id)?.name.toLowerCase() === "bybit";
 
   const accountOptions = useMemo(
     () =>
@@ -314,7 +319,7 @@ export function ManualEntryPage() {
                           rules={[{ required: true, message: "请输入交易对" }]}
                           style={{ marginBottom: 0 }}
                         >
-                          <Input placeholder="BTC-USDT-PERP" />
+                          <Input placeholder={isBybitInverse ? "SOL-USD-PERP" : "BTC-USDT-PERP"} />
                         </Form.Item>
                       </Col>
                       <Col span={3}>
@@ -330,13 +335,15 @@ export function ManualEntryPage() {
                       <Col span={3}>
                         <Form.Item
                           name={[field.name, "qty"]}
-                          label="数量"
+                          label={isBybitInverse ? "成交数量 (USD)" : "数量"}
+                          tooltip={isBybitInverse ? "请填写 Bybit 的 Filled Quantity，不要填写结算币成交额" : undefined}
                           rules={[{ required: true, message: "请输入数量" }]}
                           style={{ marginBottom: 0 }}
                         >
                           <InputNumber
                             style={{ width: "100%" }}
-                            placeholder="0"
+                            placeholder={isBybitInverse ? "65" : "0"}
+                            step={isBybitInverse ? 1 : undefined}
                           />
                         </Form.Item>
                       </Col>

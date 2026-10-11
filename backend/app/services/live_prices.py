@@ -215,13 +215,8 @@ def fetch_live_position_prices(
         ]
         if not live_rows:
             continue
-        total_qty = sum(abs(float(row.qty or 0.0)) for row, _ in live_rows)
-        if total_qty > 0:
-            price = sum(
-                abs(float(row.qty or 0.0)) * live.price for row, live in live_rows
-            ) / total_qty
-        else:
-            price = live_rows[-1][1].price
+        # Symbols can span base and USD-contract quantities; price has no quantity weight.
+        price = sum(live.price for _, live in live_rows) / len(live_rows)
         updated_at = max(live.updated_at for _, live in live_rows)
         merged_prices.append(
             LivePositionPrice(

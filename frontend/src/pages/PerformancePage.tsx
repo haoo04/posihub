@@ -32,7 +32,7 @@ import {
 } from "@/api/hooks";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { exportCsv } from "@/utils/csv";
-import { fmtCompact, fmtMoney, fmtPrice } from "@/utils/format";
+import { fmtCompact, fmtMoney, fmtPrice, fmtQuantity } from "@/utils/format";
 import dayjs from "dayjs";
 import type {
   BreakdownDimension,
@@ -145,6 +145,8 @@ export function PerformancePage() {
         { header: "合约", value: (r) => r.canonical_symbol },
         { header: "方向", value: (r) => r.side },
         { header: "平仓数量", value: (r) => r.close_qty },
+        { header: "数量单位", value: (r) => r.quantity_unit },
+        { header: "数量说明", value: (r) => r.quantity_warning ?? "" },
         { header: "平仓价", value: (r) => r.close_price },
         { header: "已实现盈亏", value: (r) => r.realized_pnl },
         {
@@ -193,7 +195,12 @@ export function PerformancePage() {
         key: "close_qty",
         align: "right",
         sorter: true,
-        render: (v: number) => v,
+        render: (v: number | null, record) => (
+          <span title={record.quantity_warning ?? undefined}>
+            {fmtQuantity(v, record.quantity_unit)}
+            {record.quantity_warning && <Text type="warning"> 缺少配对记录</Text>}
+          </span>
+        ),
       },
       {
         title: "平仓价",

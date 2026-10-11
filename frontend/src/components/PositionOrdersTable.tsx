@@ -32,8 +32,8 @@ import {
   usePositionOrders,
 } from "@/api/hooks";
 import { useQueryClient } from "@tanstack/react-query";
-import type { PositionOrderMatchRead, PositionOrderWithPnL } from "@/api/types";
-import { fmtPrice, fmtQty } from "@/utils/format";
+import type { PositionOrderMatchRead, PositionOrderWithPnL, QuantityMode } from "@/api/types";
+import { fmtContractValue, fmtPrice, fmtQuantity } from "@/utils/format";
 import {
   ACTIVE_DEFAULT_SORT,
   HISTORY_DEFAULT_SORT,
@@ -65,6 +65,9 @@ interface PositionOrdersTableProps {
   isCoinMargined?: boolean;
   pnlAsset?: string | null;
   isSpot?: boolean;
+  quantityMode?: QuantityMode;
+  quantityUnit?: string;
+  baseAsset?: string;
 }
 
 const ACTIVE_MOBILE_SORT_OPTIONS = [
@@ -227,7 +230,16 @@ function buildColumns({
       width: 100,
       sorter: numericSorter("open_qty"),
       sortOrder: sortOrderFor("open_qty"),
-      render: (v: number) => <span className="posi-numeric">{fmtQty(v)}</span>,
+      render: (v: number, record) => (
+        <Space direction="vertical" size={0}>
+          <span className="posi-numeric">{fmtQuantity(v, record.quantity_unit)}</span>
+          {record.quantity_mode === "quote_contract" && (
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              ≈ {fmtContractValue(v, record.entry_price, record.pnl_asset ?? pnlAsset ?? "")} @ 开仓价
+            </Text>
+          )}
+        </Space>
+      ),
     },
   ];
 
@@ -239,7 +251,7 @@ function buildColumns({
       width: 100,
       sorter: numericSorter("remaining_qty"),
       sortOrder: sortOrderFor("remaining_qty"),
-      render: (v: number) => <span className="posi-numeric">{fmtQty(v)}</span>,
+      render: (v: number, record) => <span className="posi-numeric">{fmtQuantity(v, record.quantity_unit)}</span>,
     });
   }
 
@@ -534,7 +546,12 @@ function OrderSection({
               {isSpot ? "买入数量" : "开仓数量"}
             </Text>
             <div>
-              <span className="posi-numeric">{fmtQty(order.open_qty)}</span>
+              <span className="posi-numeric">{fmtQuantity(order.open_qty, order.quantity_unit)}</span>
+              {order.quantity_mode === "quote_contract" && (
+                <Text type="secondary" style={{ display: "block", fontSize: 11 }}>
+                  ≈ {fmtContractValue(order.open_qty, order.entry_price, order.pnl_asset ?? pnlAsset ?? "")} @ 开仓价
+                </Text>
+              )}
             </div>
           </Col>
           {!isHistory && (
@@ -544,7 +561,7 @@ function OrderSection({
               </Text>
               <div>
                 <span className="posi-numeric">
-                  {fmtQty(order.remaining_qty)}
+                  {fmtQuantity(order.remaining_qty, order.quantity_unit)}
                 </span>
               </div>
             </Col>
@@ -836,6 +853,9 @@ export function PositionOrdersTable({
   isCoinMargined = false,
   pnlAsset = null,
   isSpot = false,
+  quantityMode = "base",
+  quantityUnit = "",
+  baseAsset = "",
 }: PositionOrdersTableProps) {
   const { isMobile } = useBreakpoint();
   const queryClient = useQueryClient();
@@ -1040,6 +1060,9 @@ export function PositionOrdersTable({
         positionId={positionId}
         marginAsset={isCoinMargined ? pnlAsset : null}
         isSpot={isSpot}
+        quantityMode={quantityMode}
+        quantityUnit={quantityUnit}
+        baseAsset={baseAsset}
         onCancel={() => setIsCreateModalOpen(false)}
         onSuccess={() => setIsCreateModalOpen(false)}
       />
@@ -1050,6 +1073,9 @@ export function PositionOrdersTable({
         order={editingOrder || undefined}
         marginAsset={isCoinMargined ? pnlAsset : null}
         isSpot={isSpot}
+        quantityMode={quantityMode}
+        quantityUnit={quantityUnit}
+        baseAsset={baseAsset}
         onCancel={() => setEditingOrder(null)}
         onSuccess={() => setEditingOrder(null)}
       />
@@ -1059,6 +1085,9 @@ export function PositionOrdersTable({
         positionId={positionId}
         defaultClosePrice={defaultClosePrice}
         isSpot={isSpot}
+        quantityMode={quantityMode}
+        quantityUnit={quantityUnit}
+        baseAsset={baseAsset}
         onCancel={() => setIsCloseModalOpen(false)}
         onSuccess={() => setIsCloseModalOpen(false)}
       />
@@ -1068,6 +1097,9 @@ export function PositionOrdersTable({
         positionId={positionId}
         defaultClosePrice={defaultClosePrice}
         isSpot={isSpot}
+        quantityMode={quantityMode}
+        quantityUnit={quantityUnit}
+        baseAsset={baseAsset}
         onCancel={() => setIsSpecifiedCloseModalOpen(false)}
         onSuccess={() => setIsSpecifiedCloseModalOpen(false)}
       />

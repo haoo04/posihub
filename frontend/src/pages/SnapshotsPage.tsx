@@ -26,7 +26,7 @@ import {
 } from "@/api/hooks";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { exportCsv } from "@/utils/csv";
-import { fmtMoney, fmtPrice, fmtQty } from "@/utils/format";
+import { fmtMoney, fmtPrice, fmtQuantity } from "@/utils/format";
 import type { AccountSnapshot, PositionSnapshot } from "@/api/types";
 
 const { Text } = Typography;
@@ -141,7 +141,7 @@ export function SnapshotsPage() {
       title: "数量",
       dataIndex: "qty",
       align: "right" as const,
-      render: (v: number) => <span className="posi-numeric">{fmtQty(v)}</span>,
+      render: (v: number, record) => <span className="posi-numeric">{fmtQuantity(v, record.quantity_unit)}</span>,
     },
     {
       title: "开仓价",
@@ -195,6 +195,7 @@ export function SnapshotsPage() {
           { header: "合约", value: (r) => r.canonical_symbol },
           { header: "方向", value: (r) => r.side },
           { header: "数量", value: (r) => r.qty },
+          { header: "数量单位", value: (r) => r.quantity_unit },
           { header: "开仓价", value: (r) => r.entry_price },
           { header: "标记价", value: (r) => r.mark_price },
           { header: "未实现盈亏", value: (r) => r.unrealized_pnl },

@@ -2,7 +2,86 @@
 
 from __future__ import annotations
 
-from ..db.models import AccountType, PositionSide
+from math import isfinite
+
+from sqlmodel import Session
+
+from ..db.models import Account, AccountType, Exchange, PositionSide
+
+
+def quantity_context(
+    exchange_name: str,
+    account_type: AccountType | None,
+    canonical_symbol: str,
+    *,
+    validate: bool = False,
+) -> dict[str, str]:
+    parts = canonical_symbol.upper().split("-")
+    bybit_coin = exchange_name.lower() == "bybit" and account_type == AccountType.COIN_PERP
+    inverse = bybit_coin and len(parts) == 3 and parts[1:] == ["USD", "PERP"]
+    if validate and bybit_coin and not inverse:
+        raise ValueError("Bybit coin_perp quantities require a *-USD-PERP symbol")
+    return {
+        "quantity_mode": "quote_contract" if inverse else "base",
+        "quantity_unit": "USD" if inverse else base_asset_from_canonical(canonical_symbol),
+    }
+
+
+def get_quantity_context(
+    session: Session,
+    account_id: int,
+    canonical_symbol: str,
+    *,
+    validate: bool = False,
+) -> dict[str, str]:
+    account = session.get(Account, account_id)
+    exchange = session.get(Exchange, account.exchange_id) if account else None
+    if validate and (account is None or exchange is None):
+        raise ValueError("Quantity context requires an existing account and exchange")
+    return quantity_context(
+        exchange.name if exchange else "",
+        account.account_type if account else None,
+        canonical_symbol,
+        validate=validate,
+    )
+
+
+def quote_qty_tolerance(entry_price: float) -> float:
+    """USD tolerance covering legacy entry quantities rounded to eight decimals."""
+    return max(1e-9, abs(entry_price) * 1e-8)
+
+
+def normalize_quote_qty(qty: float, tolerance: float) -> float:
+    nearest = round(qty)
+    return float(nearest) if nearest != 0 and abs(qty - nearest) <= tolerance + 1e-12 else qty
+
+
+def quote_to_entry_base(qty: float, entry_price: float) -> float:
+    if not isfinite(entry_price) or entry_price <= 0:
+        raise ValueError("Bybit inverse quantity conversion requires a positive entry_price")
+    if not isfinite(qty) or qty < 0:
+        raise ValueError("Quantity must be finite and non-negative")
+    return qty / entry_price
+
+
+def entry_base_to_quote(qty: float, entry_price: float) -> float:
+    if qty == 0:
+        return 0.0
+    if not isfinite(entry_price) or entry_price <= 0:
+        raise ValueError("Bybit inverse quantity conversion requires a positive entry_price")
+    return normalize_quote_qty(qty * entry_price, quote_qty_tolerance(entry_price))
+
+
+def inverse_pnl_coin(
+    side: PositionSide,
+    quote_qty: float,
+    entry_price: float,
+    exit_price: float,
+) -> float:
+    if entry_price <= 0 or exit_price <= 0:
+        raise ValueError("Inverse PnL requires positive entry and exit prices")
+    pnl = quote_qty * (1 / entry_price - 1 / exit_price)
+    return pnl if side == PositionSide.LONG else -pnl if side == PositionSide.SHORT else 0.0
 
 
 def base_asset_from_canonical(canonical_symbol: str) -> str:
@@ -19,7 +98,10 @@ def is_coin_margined_account(account_type: AccountType) -> bool:
 def linear_unrealized_pnl_usdt(
     side: PositionSide, entry_price: float, mark_price: float, qty: float
 ) -> float:
-    """Unrealized PnL in USDT when ``qty`` is underlying asset size."""
+    """USDT PnL for base size, or the inverse accounting size ``Q / entry``.
+
+    For inverse legs this equals native coin PnL converted at the mark price.
+    """
 
     if qty <= 0:
         return 0.0
@@ -52,7 +134,7 @@ def raw_position_unrealized_pnl_to_usdt(
 ) -> float:
     """Convert one exchange position response into the storage unit (USDT).
 
-    Bitget's inverse endpoint reports PnL in the contract settlement coin;
+    Coin-margined inverse endpoints report PnL in the contract settlement coin;
     linear endpoints report it in USDT.  This is the single sync-boundary
     conversion.  ``positions_current.unrealized_pnl`` and all API/snapshot
     values are otherwise already USDT.

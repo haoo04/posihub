@@ -18,6 +18,8 @@ function order(
     source: partial.source ?? "manual",
     source_order_id: partial.source_order_id ?? null,
     open_qty: partial.open_qty ?? 1,
+    quantity_mode: partial.quantity_mode ?? "base",
+    quantity_unit: partial.quantity_unit ?? "BTC",
     remaining_qty: partial.remaining_qty ?? 1,
     entry_price: partial.entry_price ?? 50_000,
     leverage: partial.leverage ?? 10,

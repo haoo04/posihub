@@ -26,7 +26,10 @@ def realized_pnl_totals_by_position_id(session: Session) -> dict[int, float]:
 
 
 def realized_pnl_totals_by_open_order_id(
-    session: Session, order_ids: list[int]
+    session: Session,
+    order_ids: list[int],
+    *,
+    settlement_coin: bool = False,
 ) -> dict[int, float]:
     """Sum ``PositionOrderMatch.realized_pnl`` per ``open_order_id``."""
 
@@ -35,7 +38,11 @@ def realized_pnl_totals_by_open_order_id(
     rows = session.exec(
         select(
             PositionOrderMatch.open_order_id,
-            func.sum(PositionOrderMatch.realized_pnl),
+            func.sum(
+                PositionOrderMatch.realized_pnl / func.nullif(PositionOrderMatch.close_price, 0)
+                if settlement_coin
+                else PositionOrderMatch.realized_pnl
+            ),
         )
         .where(PositionOrderMatch.open_order_id.in_(order_ids))
         .group_by(PositionOrderMatch.open_order_id)

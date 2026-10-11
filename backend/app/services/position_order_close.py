@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from math import isfinite
 from typing import Iterable, Optional
 
 from sqlmodel import Session, select
@@ -27,7 +28,12 @@ from ..db.models import (
     PositionOrderStatus,
     PositionSide,
 )
-from .pnl_calculator import linear_unrealized_pnl_usdt
+from .pnl_calculator import (
+    get_quantity_context,
+    linear_unrealized_pnl_usdt,
+    quote_qty_tolerance,
+    quote_to_entry_base,
+)
 
 QTY_EPSILON = 1e-9
 
@@ -67,6 +73,7 @@ def _apply_close_assignments(
     execution: PositionCloseExecution,
     assignments: Iterable[tuple[PositionOrder, float]],
     now: datetime,
+    inverse: bool = False,
 ) -> tuple[list[PositionOrderMatch], list[PositionOrder], float]:
     """Consume quantities on orders, write matches, set execution PnL.
 
@@ -78,7 +85,7 @@ def _apply_close_assignments(
     total_realized = 0.0
 
     for order, consume in assignments:
-        if consume <= QTY_EPSILON:
+        if consume <= (0 if inverse else QTY_EPSILON):
             continue
 
         pnl = _realized_pnl(
@@ -87,7 +94,7 @@ def _apply_close_assignments(
         total_realized += pnl
 
         order.remaining_qty -= consume
-        if order.remaining_qty <= QTY_EPSILON:
+        if order.remaining_qty <= (0 if inverse else QTY_EPSILON):
             order.remaining_qty = 0.0
             order.status = PositionOrderStatus.CLOSED
         else:
@@ -135,8 +142,14 @@ def _refresh_position_fields_from_orders(
     if not orders:
         return
 
+    inverse = (
+        get_quantity_context(session, position.account_id, position.canonical_symbol)[
+            "quantity_mode"
+        ]
+        == "quote_contract"
+    )
     total_rem = sum(float(o.remaining_qty or 0.0) for o in orders)
-    if total_rem <= QTY_EPSILON:
+    if total_rem <= (0 if inverse else QTY_EPSILON):
         position.qty = 0.0
         position.entry_price = 0.0
         position.unrealized_pnl = 0.0
@@ -150,7 +163,7 @@ def _refresh_position_fields_from_orders(
     cost = 0.0
     for o in orders:
         rq = float(o.remaining_qty or 0.0)
-        if rq <= QTY_EPSILON:
+        if rq <= (0 if inverse else QTY_EPSILON):
             continue
         ep = float(o.entry_price or 0.0)
         cost += rq * ep
@@ -159,6 +172,7 @@ def _refresh_position_fields_from_orders(
     position.qty = total_rem
     position.unrealized_pnl = upnl
     if side in (PositionSide.LONG, PositionSide.SHORT):
+        # Inverse legs store Q/E, so this is the USD-weighted harmonic entry price.
         position.entry_price = cost / total_rem
     position.updated_at = now
 
@@ -226,12 +240,26 @@ def fifo_close_position(
             the request.
     """
 
-    if close_qty <= 0:
+    if not isfinite(close_qty) or close_qty <= 0:
         raise FifoCloseError("close_qty must be positive")
+    if not isfinite(close_price) or close_price <= 0:
+        raise FifoCloseError("close_price must be positive")
 
     position = session.get(PositionCurrent, position_id)
     if position is None:
         raise FifoCloseError(f"Position {position_id} not found")
+    try:
+        inverse = (
+            get_quantity_context(
+                session,
+                position.account_id,
+                position.canonical_symbol,
+                validate=True,
+            )["quantity_mode"]
+            == "quote_contract"
+        )
+    except ValueError as exc:
+        raise FifoCloseError(str(exc)) from exc
 
     open_orders = list(
         session.exec(
@@ -242,36 +270,59 @@ def fifo_close_position(
         ).all()
     )
 
-    available = sum(o.remaining_qty for o in open_orders)
-    if close_qty - available > QTY_EPSILON:
-        raise FifoCloseError(
-            f"close_qty {close_qty} exceeds available remaining qty {available}"
+    if inverse and any(o.entry_price <= 0 for o in open_orders):
+        raise FifoCloseError("Bybit inverse close requires positive order entry_price")
+    available = sum(
+        o.remaining_qty * o.entry_price if inverse else o.remaining_qty for o in open_orders
+    )
+    tolerance = (
+        sum(quote_qty_tolerance(o.entry_price) for o in open_orders) if inverse else QTY_EPSILON
+    )
+    if close_qty - available > tolerance:
+        raise FifoCloseError(f"close_qty {close_qty} exceeds available remaining qty {available}")
+
+    now = _utcnow()
+    remaining_to_close = (
+        available if inverse and abs(close_qty - available) <= tolerance else close_qty
+    )
+    assignments: list[tuple[PositionOrder, float]] = []
+
+    for order in open_orders:
+        if remaining_to_close <= (0 if inverse else QTY_EPSILON):
+            break
+
+        order_available = (
+            order.remaining_qty * order.entry_price if inverse else order.remaining_qty
         )
+        consume_external = min(order_available, remaining_to_close)
+        if inverse and abs(remaining_to_close - order_available) <= quote_qty_tolerance(
+            order.entry_price
+        ):
+            consume = order.remaining_qty
+            consume_external = remaining_to_close
+        elif inverse and consume_external == order_available:
+            consume = order.remaining_qty
+        else:
+            consume = (
+                quote_to_entry_base(consume_external, order.entry_price)
+                if inverse
+                else consume_external
+            )
+        if consume <= 0:
+            continue
+
+        assignments.append((order, consume))
+        remaining_to_close -= consume_external
 
     execution = PositionCloseExecution(
         position_id=position_id,
-        close_qty=close_qty,
+        close_qty=sum(qty for _, qty in assignments) if inverse else close_qty,
         close_price=close_price,
         source=source,
         source_order_id=source_order_id,
     )
     session.add(execution)
-    session.flush()  # populate execution.id for the FK on matches
-
-    now = _utcnow()
-    remaining_to_close = close_qty
-    assignments: list[tuple[PositionOrder, float]] = []
-
-    for order in open_orders:
-        if remaining_to_close <= QTY_EPSILON:
-            break
-
-        consume = min(order.remaining_qty, remaining_to_close)
-        if consume <= 0:
-            continue
-
-        assignments.append((order, consume))
-        remaining_to_close -= consume
+    session.flush()
 
     matches, affected, total_realized = _apply_close_assignments(
         session,
@@ -279,6 +330,7 @@ def fifo_close_position(
         execution=execution,
         assignments=assignments,
         now=now,
+        inverse=inverse,
     )
 
     _refresh_position_fields_from_orders(session, position, now=now)
@@ -316,8 +368,10 @@ def specified_close_position(
         FifoCloseError: Same family of validation errors as FIFO close.
     """
 
-    if close_qty <= 0:
+    if not isfinite(close_qty) or close_qty <= 0:
         raise FifoCloseError("close_qty must be positive")
+    if not isfinite(close_price) or close_price <= 0:
+        raise FifoCloseError("close_price must be positive")
 
     if not legs:
         raise FifoCloseError("legs must not be empty")
@@ -325,6 +379,18 @@ def specified_close_position(
     position = session.get(PositionCurrent, position_id)
     if position is None:
         raise FifoCloseError(f"Position {position_id} not found")
+    try:
+        inverse = (
+            get_quantity_context(
+                session,
+                position.account_id,
+                position.canonical_symbol,
+                validate=True,
+            )["quantity_mode"]
+            == "quote_contract"
+        )
+    except ValueError as exc:
+        raise FifoCloseError(str(exc)) from exc
 
     seen_ids: set[int] = set()
     for open_order_id, qty in legs:
@@ -333,7 +399,7 @@ def specified_close_position(
                 f"duplicate open_order_id {open_order_id} in legs"
             )
         seen_ids.add(open_order_id)
-        if qty <= 0:
+        if not isfinite(qty) or qty <= 0:
             raise FifoCloseError("each leg qty must be positive")
 
     open_orders = list(
@@ -355,12 +421,21 @@ def specified_close_position(
                 f"open order {open_order_id} not found, not open, "
                 f"or not on this position"
             )
-        if qty - order.remaining_qty > QTY_EPSILON:
+        if inverse and order.entry_price <= 0:
+            raise FifoCloseError("Bybit inverse close requires positive order entry_price")
+        available = order.remaining_qty * order.entry_price if inverse else order.remaining_qty
+        tolerance = quote_qty_tolerance(order.entry_price) if inverse else QTY_EPSILON
+        if qty - available > tolerance:
             raise FifoCloseError(
-                f"leg qty {qty} exceeds remaining_qty {order.remaining_qty} "
+                f"leg qty {qty} exceeds remaining_qty {available} "
                 f"for order {open_order_id}"
             )
-        assignments.append((order, qty))
+        consume = (
+            order.remaining_qty
+            if abs(qty - available) <= tolerance
+            else quote_to_entry_base(qty, order.entry_price) if inverse else qty
+        )
+        assignments.append((order, consume))
         leg_sum += qty
 
     if abs(leg_sum - close_qty) > QTY_EPSILON:
@@ -370,7 +445,7 @@ def specified_close_position(
 
     execution = PositionCloseExecution(
         position_id=position_id,
-        close_qty=close_qty,
+        close_qty=sum(qty for _, qty in assignments) if inverse else close_qty,
         close_price=close_price,
         source=source,
         source_order_id=source_order_id,
@@ -385,6 +460,7 @@ def specified_close_position(
         execution=execution,
         assignments=assignments,
         now=now,
+        inverse=inverse,
     )
 
     _refresh_position_fields_from_orders(session, position, now=now)

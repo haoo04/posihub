@@ -31,7 +31,7 @@ import type {
   PositionMerged,
   PositionSplit,
 } from "@/api/types";
-import { fmtPrice, fmtQty } from "@/utils/format";
+import { fmtPrice, fmtQuantity } from "@/utils/format";
 
 const { Text } = Typography;
 
@@ -96,6 +96,9 @@ export function PositionsPage() {
     isCoinMargined: isCoinPerpPosition(p),
     pnlAsset: isCoinPerpPosition(p) ? pnlAssetFor(p) : null,
     isSpot,
+    quantityMode: p.quantity_mode,
+    quantityUnit: p.quantity_unit,
+    baseAsset: p.canonical_symbol.split("-")[0],
   });
 
   const livePriceMap = useMemo(() => {
@@ -124,7 +127,7 @@ export function PositionsPage() {
         ...position,
         mark_price: price,
         notional:
-          position.side === "short"
+          position.quantity_mode === "quote_contract" ? position.notional : position.side === "short"
             ? -Math.abs(position.qty * price)
             : Math.abs(position.qty * price),
       };
@@ -188,8 +191,8 @@ export function PositionsPage() {
         title: "数量",
         dataIndex: "qty",
         align: "right" as const,
-        render: (v: number) => (
-          <span className="posi-numeric">{fmtQty(v)}</span>
+        render: (v: number, record: PositionSplit) => (
+          <span className="posi-numeric">{fmtQuantity(v, record.quantity_unit)}</span>
         ),
       },
       {
@@ -297,8 +300,8 @@ export function PositionsPage() {
         title: isSpot ? "总持仓" : "净持仓",
         dataIndex: "qty",
         align: "right" as const,
-        render: (v: number) => (
-          <span className="posi-numeric">{fmtQty(v)}</span>
+        render: (v: number, record: PositionMerged) => (
+          <span className="posi-numeric">{fmtQuantity(v, record.quantity_unit)}</span>
         ),
       },
       {
@@ -397,7 +400,7 @@ export function PositionsPage() {
               数量
             </Text>
             <div>
-              <span className="posi-numeric">{fmtQty(position.qty)}</span>
+              <span className="posi-numeric">{fmtQuantity(position.qty, position.quantity_unit)}</span>
             </div>
           </Col>
           <Col span={12}>
@@ -501,7 +504,7 @@ export function PositionsPage() {
 
   const renderMergedCard = (position: PositionMerged) => (
     <Card
-      key={position.canonical_symbol}
+      key={`${position.canonical_symbol}:${position.quantity_mode}:${position.quantity_unit}`}
       size="small"
       style={{ marginBottom: 12 }}
       bodyStyle={{ padding: 12 }}
@@ -526,7 +529,7 @@ export function PositionsPage() {
               {isSpot ? "总持仓" : "净持仓"}
             </Text>
             <div>
-              <span className="posi-numeric">{fmtQty(position.qty)}</span>
+              <span className="posi-numeric">{fmtQuantity(position.qty, position.quantity_unit)}</span>
             </div>
           </Col>
           <Col span={12}>
@@ -710,7 +713,7 @@ export function PositionsPage() {
               />
             ) : (
               <Table<PositionMerged>
-                rowKey="canonical_symbol"
+                rowKey={(p) => `${p.canonical_symbol}:${p.quantity_mode}:${p.quantity_unit}`}
                 columns={mergedColumns}
                 dataSource={filteredData as PositionMerged[]}
                 loading={positions.isFetching && !positions.isLoading}

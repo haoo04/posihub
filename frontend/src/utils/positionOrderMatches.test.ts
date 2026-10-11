@@ -14,6 +14,8 @@ function match(
     open_order_id: partial.open_order_id,
     close_order_id: partial.close_order_id ?? 100,
     matched_qty: partial.matched_qty ?? 0.5,
+    quantity_mode: partial.quantity_mode ?? "base",
+    quantity_unit: partial.quantity_unit ?? "BTC",
     open_price: partial.open_price ?? 50_000,
     close_price: partial.close_price ?? 51_000,
     realized_pnl: partial.realized_pnl ?? 500,

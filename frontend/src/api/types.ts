@@ -6,6 +6,11 @@ export type PositionSide = "long" | "short" | "net";
 export type PositionOrderStatus = "open" | "partial" | "closed";
 export type PositionMarket = "derivatives" | "spot";
 export type InstrumentType = "spot" | "perp" | "futures";
+export type QuantityMode = "base" | "quote_contract";
+export interface QuantityContext {
+  quantity_mode: QuantityMode;
+  quantity_unit: string;
+}
 export type AccountType =
   | "spot"
   | "usdt_perp"
@@ -91,12 +96,13 @@ export interface AccountSyncStatus {
   synced_at: string;
 }
 
-export interface PositionSplit {
+export interface PositionSplit extends QuantityContext {
   id: number;
   account_id: number;
   canonical_symbol: string;
   side: PositionSide;
   qty: number;
+  notional: number;
   entry_price: number;
   mark_price: number;
   unrealized_pnl: number;
@@ -111,7 +117,7 @@ export interface PositionSplit {
   has_cost_basis?: boolean;
 }
 
-export interface PositionMerged {
+export interface PositionMerged extends QuantityContext {
   canonical_symbol: string;
   side: PositionSide;
   qty: number;
@@ -256,13 +262,14 @@ export interface RealizedPnlSeries {
 
 export type TradeSortField = "closed_at" | "realized_pnl" | "close_qty";
 
-export interface TradeRowRead {
+export interface TradeRowRead extends QuantityContext {
   execution_id: number;
   account_id: number;
   account_name: string;
   canonical_symbol: string;
   side: PositionSide;
-  close_qty: number;
+  close_qty: number | null;
+  quantity_warning?: string | null;
   close_price: number;
   realized_pnl: number;
   closed_at: string | null;
@@ -308,7 +315,7 @@ export interface AccountSnapshot {
   created_at: string;
 }
 
-export interface PositionSnapshot {
+export interface PositionSnapshot extends QuantityContext {
   id: number;
   snapshot_date: string;
   account_id: number;
@@ -386,7 +393,7 @@ export interface PositionOrderCreate extends PositionOrderBase {
   position_id: number;
 }
 
-export interface PositionOrderRead extends PositionOrderBase {
+export interface PositionOrderRead extends PositionOrderBase, QuantityContext {
   id: number;
   position_id: number;
   status: PositionOrderStatus;
@@ -439,7 +446,7 @@ export interface SpecifiedCloseRequest {
   source_order_id?: string | null;
 }
 
-export interface PositionOrderMatchRead {
+export interface PositionOrderMatchRead extends QuantityContext {
   id: number;
   open_order_id: number;
   close_order_id: number;
@@ -450,10 +457,11 @@ export interface PositionOrderMatchRead {
   matched_at: string;
 }
 
-export interface PositionCloseExecutionRead {
+export interface PositionCloseExecutionRead extends QuantityContext {
   id: number;
   position_id: number;
-  close_qty: number;
+  close_qty: number | null;
+  quantity_warning?: string | null;
   close_price: number;
   source: DataSource;
   source_order_id: string | null;

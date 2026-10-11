@@ -19,7 +19,11 @@ from ...db.models import (
     PositionSide,
 )
 from ..exchange.base import RawBalance, RawPosition
-from ..pnl_calculator import raw_position_unrealized_pnl_to_usdt
+from ..pnl_calculator import (
+    quantity_context,
+    quote_to_entry_base,
+    raw_position_unrealized_pnl_to_usdt,
+)
 from .symbol_mapper import CanonicalSymbol, SymbolMapper
 
 
@@ -129,12 +133,23 @@ def normalize_positions(
                 contract_size=raw.contract_size,
             )
 
+        context = quantity_context(
+            exchange_name,
+            account_type,
+            canonical.canonical,
+            validate=True,
+        )
+        qty = raw.qty
+        if context["quantity_mode"] == "quote_contract":
+            # Fail the sync before persistence if entry price is invalid; keep the last valid row.
+            qty = quote_to_entry_base(raw.qty * raw.contract_size, raw.entry_price)
+
         out.append(
             NormalizedPosition(
                 account_id=account_id,
                 canonical_symbol=canonical.canonical,
                 side=_to_side(raw.side),
-                qty=raw.qty,
+                qty=qty,
                 entry_price=raw.entry_price,
                 mark_price=raw.mark_price,
                 unrealized_pnl=raw_position_unrealized_pnl_to_usdt(

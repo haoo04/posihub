@@ -1,10 +1,10 @@
 # Bybit 币本位反向合约成交数量（USD）优化开发文档
 
-> 状态：待开发
+> 状态：已实现并完成自动化验证，待部署维护窗口同步验收
 >
 > 编写日期：2026-09-23
 >
-> 本文只定义需求与实施方案，不包含代码实现。
+> 本文保留需求与实施方案；实施结果见第 17 节。
 
 ## 1. 结论
 
@@ -603,3 +603,26 @@ npm.cmd --prefix frontend run build
 - [Bybit V5：成交历史字段](https://bybit-exchange.github.io/docs/v5/order/execution)
 - [Bybit V5：合约规格与 qtyStep](https://bybit-exchange.github.io/docs/v5/market/instrument)
 - [CCXT Manual：合约数量、contractSize 与反向合约](https://github.com/ccxt/ccxt/wiki/Manual)
+
+---
+
+## 17. 实施与验证记录（2026-10-10）
+
+- API 新增/编辑、FIFO/指定配对、分仓/合仓、绩效平仓与快照已统一目标账户的 USD 数量契约；响应包含 `quantity_mode` 和 `quantity_unit`。数据库表、数量列和历史订单表示保持不变。
+- 只修改开仓价会保留原 USD 面值；旧八位币量通过 GET 显示为近整数 USD，直接保存不漂移。全平采用逐笔及总量 USD 容差，避免留下尾仓；合法小数数量保持小数。
+- 已实现结算币盈亏按逐笔 match 的平仓价换算。同步采用 `contracts × contract_size / entry_price`，无有效开仓价时同步失败并保留上一条有效仓位。
+- 合仓按 symbol、quantity mode、unit 分组，在目标模式下按 USD 净额及胜出方向的调和均价计算；名义敞口不乘标记价。
+- 前端新增、编辑及两种平仓入口显示 USD 和成交币值预览；桌面/移动端订单、配对、仓位、绩效与快照均展示数量单位，现有绩效/快照 CSV 增加独立单位列。
+- 历史 execution 缺少 match 时，API 返回 `close_qty: null` 及 `quantity_warning`，绩效页显示缺失原因；禁止猜测 USD 数量。
+- 账户存在订单、平仓或仓位快照历史时，禁止直接切换涉及 `coin_perp` 的账户类型，避免重新解释历史数量。
+
+验证：
+
+- 后端 157 项全量测试通过，新增 27 项 Bybit 数量契约与 API 回归测试；包含 65 USD 多空全平、多开仓价 FIFO/指定配对、旧精度全平、改价、原生盈亏、同步失败保留、混合单位合仓、绩效排序/持仓时长和手动快照。
+- 前端 22 项测试通过，包含新增的 USD 表单标签、数量预览、桌面/移动端展示、配对数量、USD 容差及 CSV 数值/单位分离验证。
+- 前端 TypeScript 与生产构建通过；改动的后端文件通过 Ruff 的导入、未定义名称和语法检查。
+- `npm.cmd --prefix frontend run lint` 当前无法执行：仓库已有 lint 脚本，但未声明/安装 ESLint，且没有 ESLint 配置。本次未引入额外 lint 工具或依赖。
+
+本地 SQLite 已备份并完成只读审计，未改写业务数据。审计未发现目标账户的历史快照或缺失 match 记录；发现的当前仓位与订单账本差异可由部署后的订单刷新修复。备份和完整审计报告保存在本地工作产物中，不提交业务数据。
+
+部署仍须按第 10.3 节在维护窗口同时发布前后端并强制同步一次 Bybit 币本位账户；本次开发验证使用隔离的内存数据库，没有对真实账户发起同步或写入测试订单。

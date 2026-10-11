@@ -24,10 +24,14 @@ from ..schemas.position_order import (
 )
 from ..services.pnl_calculator import (
     base_asset_from_canonical,
+    entry_base_to_quote,
+    get_quantity_context,
     is_coin_margined_account,
     linear_unrealized_pnl_usdt,
+    quote_to_entry_base,
     usdt_to_settlement_coin,
 )
+from ..services.position_order_close import _refresh_position_fields_from_orders
 from ..services.realized_pnl_query import (
     close_price_by_open_order_id,
     realized_pnl_totals_by_open_order_id,
@@ -35,6 +39,14 @@ from ..services.realized_pnl_query import (
 from .deps import SessionDep
 
 router = APIRouter(prefix="/api/v1/position-orders", tags=["position-orders"])
+
+
+def order_read(order: PositionOrder, context: dict[str, str]) -> PositionOrderRead:
+    data = order.model_dump()
+    if context["quantity_mode"] == "quote_contract":
+        data["open_qty"] = entry_base_to_quote(order.open_qty, order.entry_price)
+        data["remaining_qty"] = entry_base_to_quote(order.remaining_qty, order.entry_price)
+    return PositionOrderRead(**data, **context)
 
 
 def calculate_order_pnl(
@@ -66,6 +78,8 @@ def _build_order_with_pnl(
     account: Account,
     realized_pnl_usdt: float,
     close_price: Optional[float],
+    context: dict[str, str],
+    realized_pnl_coin: float = 0.0,
 ) -> PositionOrderWithPnL:
     pnl_usdt, pnl_pct = calculate_order_pnl(
         order, position.mark_price, position.side
@@ -79,10 +93,14 @@ def _build_order_with_pnl(
 
     if coin:
         unrealized_native = usdt_to_settlement_coin(pnl_usdt, mark)
-        realized_native = usdt_to_settlement_coin(realized_pnl_usdt, mark)
+        realized_native = (
+            realized_pnl_coin
+            if context["quantity_mode"] == "quote_contract"
+            else usdt_to_settlement_coin(realized_pnl_usdt, mark)
+        )
 
     return PositionOrderWithPnL(
-        **order.model_dump(),
+        **order_read(order, context).model_dump(),
         unrealized_pnl=pnl_usdt,
         unrealized_pnl_pct=pnl_pct,
         mark_price=position.mark_price,
@@ -111,7 +129,12 @@ def list_position_orders(
     )
 
     orders = list(session.exec(query).all())
-    return [PositionOrderRead.model_validate(o) for o in orders]
+    result = []
+    for order in orders:
+        position = session.get(PositionCurrent, order.position_id)
+        context = get_quantity_context(session, position.account_id, position.canonical_symbol)
+        result.append(order_read(order, context))
+    return result
 
 
 @router.get("/{order_id}", response_model=PositionOrderWithPnL)
@@ -141,6 +164,12 @@ def get_position_order(session: SessionDep, order_id: int) -> PositionOrderWithP
     oid = int(order.id or 0)
     rp_map = realized_pnl_totals_by_open_order_id(session, [oid])
     cp_map = close_price_by_open_order_id(session, [oid])
+    context = get_quantity_context(session, position.account_id, position.canonical_symbol)
+    native_map = (
+        realized_pnl_totals_by_open_order_id(session, [oid], settlement_coin=True)
+        if context["quantity_mode"] == "quote_contract"
+        else {}
+    )
     close_px = cp_map.get(oid) if order.status != PositionOrderStatus.OPEN else None
 
     return _build_order_with_pnl(
@@ -149,6 +178,8 @@ def get_position_order(session: SessionDep, order_id: int) -> PositionOrderWithP
         account=account,
         realized_pnl_usdt=float(rp_map.get(oid, 0.0)),
         close_price=close_px,
+        context=context,
+        realized_pnl_coin=native_map.get(oid, 0.0),
     )
 
 
@@ -164,17 +195,30 @@ def create_position_order(
             detail=f"Position {order_in.position_id} not found",
         )
 
+    try:
+        context = get_quantity_context(
+            session, position.account_id, position.canonical_symbol, validate=True
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    data = order_in.model_dump()
+    if context["quantity_mode"] == "quote_contract":
+        data["open_qty"] = quote_to_entry_base(order_in.open_qty, order_in.entry_price)
     order = PositionOrder(
-        **order_in.model_dump(),
-        remaining_qty=order_in.open_qty,
+        **data,
+        remaining_qty=data["open_qty"],
         status=PositionOrderStatus.OPEN,
     )
 
     session.add(order)
+    if context["quantity_mode"] == "quote_contract":
+        session.flush()
+        _refresh_position_fields_from_orders(session, position, now=order.updated_at)
+        session.add(position)
     session.commit()
     session.refresh(order)
 
-    return PositionOrderRead.model_validate(order)
+    return order_read(order, context)
 
 
 @router.patch("/{order_id}", response_model=PositionOrderRead)
@@ -197,16 +241,49 @@ def update_position_order(
         )
 
     update_data = order_update.model_dump(exclude_unset=True)
+    position = session.get(PositionCurrent, order.position_id)
+    try:
+        context = get_quantity_context(
+            session, position.account_id, position.canonical_symbol, validate=True
+        )
+        if any(
+            update_data.get(key, 1) is None for key in ("open_qty", "remaining_qty", "entry_price")
+        ):
+            raise ValueError("Quantity and entry_price cannot be null")
+        if context["quantity_mode"] == "quote_contract":
+            entry = update_data.get("entry_price", order.entry_price)
+            # Preserve contract face value when only the entry price changes.
+            for key in ("open_qty", "remaining_qty"):
+                if key in update_data or "entry_price" in update_data:
+                    old_internal = getattr(order, key)
+                    quote_qty = update_data.get(key, old_internal * order.entry_price)
+                    internal = quote_to_entry_base(quote_qty, entry)
+                    # Saving a normalized legacy API value unchanged must not drift storage.
+                    if entry == order.entry_price and quote_qty == entry_base_to_quote(
+                        old_internal, entry
+                    ):
+                        internal = old_internal
+                    update_data[key] = internal
+        open_qty = update_data.get("open_qty", order.open_qty)
+        remaining_qty = update_data.get("remaining_qty", order.remaining_qty)
+        if remaining_qty > open_qty + 1e-9:
+            raise ValueError("remaining_qty cannot exceed open_qty")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     for key, value in update_data.items():
         setattr(order, key, value)
 
     order.updated_at = datetime.now()
 
     session.add(order)
+    if context["quantity_mode"] == "quote_contract":
+        session.flush()
+        _refresh_position_fields_from_orders(session, position, now=order.updated_at)
+        session.add(position)
     session.commit()
     session.refresh(order)
 
-    return PositionOrderRead.model_validate(order)
+    return order_read(order, context)
 
 
 @router.delete("/{order_id}")
@@ -260,15 +337,17 @@ def list_position_orders_with_pnl(
     order_ids = [int(o.id) for o in orders if o.id is not None]
     rp_map = realized_pnl_totals_by_open_order_id(session, order_ids)
     cp_map = close_price_by_open_order_id(session, order_ids)
+    context = get_quantity_context(session, position.account_id, position.canonical_symbol)
+    native_map = (
+        realized_pnl_totals_by_open_order_id(session, order_ids, settlement_coin=True)
+        if context["quantity_mode"] == "quote_contract"
+        else {}
+    )
 
     result: list[PositionOrderWithPnL] = []
     for order in orders:
         oid = int(order.id or 0)
-        close_px = (
-            cp_map.get(oid)
-            if order.status != PositionOrderStatus.OPEN
-            else None
-        )
+        close_px = cp_map.get(oid) if order.status != PositionOrderStatus.OPEN else None
         result.append(
             _build_order_with_pnl(
                 order,
@@ -276,6 +355,8 @@ def list_position_orders_with_pnl(
                 account=account,
                 realized_pnl_usdt=float(rp_map.get(oid, 0.0)),
                 close_price=close_px,
+                context=context,
+                realized_pnl_coin=native_map.get(oid, 0.0),
             )
         )
 

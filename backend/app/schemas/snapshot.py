@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import Field
+from pydantic import ConfigDict, Field
 
 from ..db.models import DataSource, PositionSide
 from .common import APIModel
@@ -30,6 +30,8 @@ class PositionSnapshotRead(APIModel):
     canonical_symbol: str
     side: PositionSide
     qty: float
+    quantity_mode: Literal["base", "quote_contract"] = "base"
+    quantity_unit: str = ""
     entry_price: float
     mark_price: float
     unrealized_pnl: float
@@ -57,10 +59,11 @@ class ManualBalanceItem(APIModel):
 
 
 class ManualPositionItem(APIModel):
+    model_config = ConfigDict(extra="forbid")
     canonical_symbol: str
     side: PositionSide = PositionSide.NET
-    qty: float
-    entry_price: float
+    qty: float = Field(ge=0, allow_inf_nan=False)
+    entry_price: float = Field(ge=0, allow_inf_nan=False)
     mark_price: float
     unrealized_pnl: float = 0.0
 

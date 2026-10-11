@@ -17,6 +17,9 @@ class PositionRead(APIModel):
     canonical_symbol: str
     side: PositionSide
     qty: float
+    quantity_mode: Literal["base", "quote_contract"] = "base"
+    quantity_unit: str = ""
+    notional: float = 0.0
     entry_price: float
     mark_price: float
     unrealized_pnl: float
@@ -35,6 +38,8 @@ class PositionMerged(APIModel):
     canonical_symbol: str
     side: PositionSide
     qty: float
+    quantity_mode: Literal["base", "quote_contract"] = "base"
+    quantity_unit: str = ""
     avg_entry_price: float
     mark_price: float
     unrealized_pnl: float
